@@ -1,0 +1,129 @@
+{
+  "app": {
+    "title": "LocKeep",
+    "subtitle": "Şifre Yöneticisi",
+    "tagline": "Tamamen Çevrimdışı. Maksimum Güvenlik."
+  },
+  "lock": {
+    "title": "Kasanızı Açın",
+    "createTitle": "Kasanızı Oluşturun",
+    "masterPassword": "Ana Şifre",
+    "confirmPassword": "Ana Şifreyi Onaylayın",
+    "unlock": "Kilidi Aç",
+    "create": "Kasa Oluştur",
+    "creating": "Kasa oluşturuluyor...",
+    "unlocking": "Anahtar türetiliyor...",
+    "wrongPassword": "Yanlış ana şifre. Lütfen tekrar deneyin.",
+    "passwordMismatch": "Şifreler eşleşmiyor.",
+    "minLength": "Ana şifre en az 8 karakter olmalıdır.",
+    "vaultCreated": "Kasa başarıyla oluşturuldu!"
+  },
+  "vault": {
+    "searchPlaceholder": "Şifreleri ara...",
+    "noEntries": "Henüz kayıtlı şifre yok.",
+    "noResults": "Eşleşen giriş bulunamadı.",
+    "addNew": "Yeni Ekle",
+    "totalEntries": "{{count}} kayıt"
+  },
+  "entry": {
+    "title": "Başlık",
+    "username": "Kullanıcı Adı / E-posta",
+    "password": "Şifre",
+    "url": "Web Sitesi URL'si",
+    "notes": "Notlar",
+    "category": "Kategori",
+    "favorite": "Favori",
+    "createdAt": "Oluşturulma",
+    "updatedAt": "Son Değişiklik",
+    "copyUsername": "Kullanıcı Adını Kopyala",
+    "copyPassword": "Şifreyi Kopyala",
+    "edit": "Düzenle",
+    "delete": "Sil",
+    "save": "Kaydet",
+    "cancel": "İptal",
+    "deleteConfirm": "Bu kaydı silmek istediğinizden emin misiniz?",
+    "hoverToReveal": "Görmek için üzerine gelin"
+  },
+  "generator": {
+    "title": "Şifre Üretici",
+    "length": "Uzunluk",
+    "uppercase": "Büyük Harf (A-Z)",
+    "lowercase": "Küçük Harf (a-z)",
+    "digits": "Rakamlar (0-9)",
+    "symbols": "Semboller (!@#$)",
+    "generate": "Üret",
+    "usePassword": "Bu Şifreyi Kullan",
+    "passphrase": "Parola İfadesi",
+    "strength": "Güç",
+    "entropy": "Entropi",
+    "bits": "bit",
+    "copy": "Kopyala"
+  },
+  "strength": {
+    "very_weak": "Çok Zayıf",
+    "weak": "Zayıf",
+    "fair": "Orta",
+    "strong": "Güçlü",
+    "very_strong": "Çok Güçlü",
+    "excellent": "Mükemmel"
+  },
+  "import": {
+    "title": "Şifreleri İçe Aktar",
+    "description": "Başka bir şifre yöneticisinden şifreleri içe aktarın.",
+    "selectFile": "Dosya Seç",
+    "supportedFormats": "Desteklenen: Bitwarden CSV, 1Password CSV, Chrome CSV, JSON",
+    "importing": "İçe aktarılıyor...",
+    "success": "{{count}} kayıt başarıyla içe aktarıldı.",
+    "error": "İçe aktarma başarısız"
+  },
+  "export": {
+    "title": "Şifreleri Dışa Aktar",
+    "description": "Şifrelerinizi başka bir şifre yöneticisinde kullanmak için dışa aktarın.",
+    "selectFormat": "Hedef Format Seçin",
+    "exportBtn": "Dışa Aktar",
+    "warning": "Uyarı: Dışa aktarılan dosya şifrelerinizi düz metin olarak içerecektir. İçe aktardıktan sonra güvenli bir şekilde silin.",
+    "success": "{{count}} kayıt başarıyla dışa aktarıldı.",
+    "error": "Dışa aktarma başarısız"
+  },
+  "settings": {
+    "title": "Ayarlar",
+    "language": "Dil",
+    "autoLock": "Otomatik Kilitleme Süresi",
+    "autoLockOptions": {
+      "1": "1 Dakika",
+      "5": "5 Dakika",
+      "15": "15 Dakika",
+      "0": "Asla"
+    },
+    "vaultLocation": "Kasa Konumu",
+    "currentPath": "Mevcut konum",
+    "changePath": "Konumu Değiştir",
+    "resetPath": "Varsayılana Sıfırla",
+    "changeMasterPassword": "Ana Şifreyi Değiştir",
+    "about": "Hakkında",
+    "version": "Sürüm"
+  },
+  "clipboard": {
+    "copied": "{{label}} panoya kopyalandı.",
+    "clearing": "Pano {{seconds}} saniye içinde temizlenecek",
+    "cleared": "Pano temizlendi."
+  },
+  "nav": {
+    "passwords": "Şifreler",
+    "generator": "Üretici",
+    "import": "İçe Aktar",
+    "export": "Dışa Aktar",
+    "settings": "Ayarlar",
+    "lock": "Kasayı Kilitle"
+  },
+  "common": {
+    "close": "Kapat",
+    "confirm": "Onayla",
+    "cancel": "İptal",
+    "yes": "Evet",
+    "no": "Hayır",
+    "error": "Hata",
+    "success": "Başarılı",
+    "loading": "Yükleniyor..."
+  }
+}

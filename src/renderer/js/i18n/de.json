@@ -1,0 +1,129 @@
+{
+  "app": {
+    "title": "LocKeep",
+    "subtitle": "Passwort-Manager",
+    "tagline": "Strikt Offline. Maximale Sicherheit."
+  },
+  "lock": {
+    "title": "Tresor entsperren",
+    "createTitle": "Tresor erstellen",
+    "masterPassword": "Master-Passwort",
+    "confirmPassword": "Master-Passwort bestätigen",
+    "unlock": "Entsperren",
+    "create": "Tresor erstellen",
+    "creating": "Tresor wird erstellt...",
+    "unlocking": "Schlüssel wird abgeleitet...",
+    "wrongPassword": "Falsches Master-Passwort. Bitte erneut versuchen.",
+    "passwordMismatch": "Passwörter stimmen nicht überein.",
+    "minLength": "Master-Passwort muss mindestens 8 Zeichen lang sein.",
+    "vaultCreated": "Tresor erfolgreich erstellt!"
+  },
+  "vault": {
+    "searchPlaceholder": "Passwörter suchen...",
+    "noEntries": "Noch keine Passwörter gespeichert.",
+    "noResults": "Keine passenden Einträge gefunden.",
+    "addNew": "Neuer Eintrag",
+    "totalEntries": "{{count}} Einträge"
+  },
+  "entry": {
+    "title": "Titel",
+    "username": "Benutzername / E-Mail",
+    "password": "Passwort",
+    "url": "Webseiten-URL",
+    "notes": "Notizen",
+    "category": "Kategorie",
+    "favorite": "Favorit",
+    "createdAt": "Erstellt",
+    "updatedAt": "Zuletzt geändert",
+    "copyUsername": "Benutzername kopieren",
+    "copyPassword": "Passwort kopieren",
+    "edit": "Bearbeiten",
+    "delete": "Löschen",
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "deleteConfirm": "Möchten Sie diesen Eintrag wirklich löschen?",
+    "hoverToReveal": "Hover zum Anzeigen"
+  },
+  "generator": {
+    "title": "Passwort-Generator",
+    "length": "Länge",
+    "uppercase": "Großbuchstaben (A-Z)",
+    "lowercase": "Kleinbuchstaben (a-z)",
+    "digits": "Ziffern (0-9)",
+    "symbols": "Sonderzeichen (!@#$)",
+    "generate": "Generieren",
+    "usePassword": "Dieses Passwort verwenden",
+    "passphrase": "Passphrase",
+    "strength": "Stärke",
+    "entropy": "Entropie",
+    "bits": "Bits",
+    "copy": "Kopieren"
+  },
+  "strength": {
+    "very_weak": "Sehr Schwach",
+    "weak": "Schwach",
+    "fair": "Mittel",
+    "strong": "Stark",
+    "very_strong": "Sehr Stark",
+    "excellent": "Ausgezeichnet"
+  },
+  "import": {
+    "title": "Passwörter importieren",
+    "description": "Passwörter aus einem anderen Passwort-Manager importieren.",
+    "selectFile": "Datei auswählen",
+    "supportedFormats": "Unterstützt: Bitwarden CSV, 1Password CSV, Chrome CSV, JSON",
+    "importing": "Importiere...",
+    "success": "{{count}} Einträge erfolgreich importiert.",
+    "error": "Import fehlgeschlagen"
+  },
+  "export": {
+    "title": "Passwörter exportieren",
+    "description": "Exportieren Sie Ihre Passwörter zur Verwendung in einem anderen Passwort-Manager.",
+    "selectFormat": "Zielformat auswählen",
+    "exportBtn": "Exportieren",
+    "warning": "Warnung: Die exportierte Datei enthält Ihre Passwörter im Klartext. Löschen Sie sie nach dem Import sicher.",
+    "success": "{{count}} Einträge erfolgreich exportiert.",
+    "error": "Export fehlgeschlagen"
+  },
+  "settings": {
+    "title": "Einstellungen",
+    "language": "Sprache",
+    "autoLock": "Automatische Sperre",
+    "autoLockOptions": {
+      "1": "1 Minute",
+      "5": "5 Minuten",
+      "15": "15 Minuten",
+      "0": "Nie"
+    },
+    "vaultLocation": "Tresor-Speicherort",
+    "currentPath": "Aktueller Pfad",
+    "changePath": "Speicherort ändern",
+    "resetPath": "Auf Standard zurücksetzen",
+    "changeMasterPassword": "Master-Passwort ändern",
+    "about": "Über",
+    "version": "Version"
+  },
+  "clipboard": {
+    "copied": "{{label}} in Zwischenablage kopiert.",
+    "clearing": "Zwischenablage wird in {{seconds}}s geleert",
+    "cleared": "Zwischenablage geleert."
+  },
+  "nav": {
+    "passwords": "Passwörter",
+    "generator": "Generator",
+    "import": "Importieren",
+    "export": "Exportieren",
+    "settings": "Einstellungen",
+    "lock": "Tresor sperren"
+  },
+  "common": {
+    "close": "Schließen",
+    "confirm": "Bestätigen",
+    "cancel": "Abbrechen",
+    "yes": "Ja",
+    "no": "Nein",
+    "error": "Fehler",
+    "success": "Erfolg",
+    "loading": "Laden..."
+  }
+}

@@ -1,0 +1,31 @@
+appId: com.lockeep.app
+productName: LocKeepPasswordManager
+copyright: Copyright © 2026 LocKeep
+directories:
+  output: dist
+  buildResources: build
+files:
+  - src/**/*
+  - package.json
+  - extension/**/*
+  - "!tests/**/*"
+  - "!scripts/**/*"
+asarUnpack:
+  - "extension/**"
+win:
+  target:
+    - nsis
+  icon: src/renderer/assets/icons/icon.ico
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  shortcutName: LocKeep
+  deleteAppDataOnUninstall: true
+  include: build/installer.nsh
+mac:
+  target: dmg
+  icon: src/renderer/assets/icons/icon.ico
+linux:
+  target: AppImage
+  icon: src/renderer/assets/icons/icon.ico

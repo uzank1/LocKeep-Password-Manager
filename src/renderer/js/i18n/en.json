@@ -1,0 +1,129 @@
+{
+  "app": {
+    "title": "LocKeep",
+    "subtitle": "Password Manager",
+    "tagline": "Strictly Offline. Maximum Security."
+  },
+  "lock": {
+    "title": "Unlock Your Vault",
+    "createTitle": "Create Your Vault",
+    "masterPassword": "Master Password",
+    "confirmPassword": "Confirm Master Password",
+    "unlock": "Unlock",
+    "create": "Create Vault",
+    "creating": "Creating vault...",
+    "unlocking": "Deriving key...",
+    "wrongPassword": "Wrong master password. Please try again.",
+    "passwordMismatch": "Passwords do not match.",
+    "minLength": "Master password must be at least 8 characters.",
+    "vaultCreated": "Vault created successfully!"
+  },
+  "vault": {
+    "searchPlaceholder": "Search passwords...",
+    "noEntries": "No passwords saved yet.",
+    "noResults": "No matching entries found.",
+    "addNew": "Add New",
+    "totalEntries": "{{count}} entries"
+  },
+  "entry": {
+    "title": "Title",
+    "username": "Username / Email",
+    "password": "Password",
+    "url": "Website URL",
+    "notes": "Notes",
+    "category": "Category",
+    "favorite": "Favorite",
+    "createdAt": "Created",
+    "updatedAt": "Last Modified",
+    "copyUsername": "Copy Username",
+    "copyPassword": "Copy Password",
+    "edit": "Edit",
+    "delete": "Delete",
+    "save": "Save",
+    "cancel": "Cancel",
+    "deleteConfirm": "Are you sure you want to delete this entry?",
+    "hoverToReveal": "Hover to reveal"
+  },
+  "generator": {
+    "title": "Password Generator",
+    "length": "Length",
+    "uppercase": "Uppercase (A-Z)",
+    "lowercase": "Lowercase (a-z)",
+    "digits": "Digits (0-9)",
+    "symbols": "Symbols (!@#$)",
+    "generate": "Generate",
+    "usePassword": "Use This Password",
+    "passphrase": "Passphrase",
+    "strength": "Strength",
+    "entropy": "Entropy",
+    "bits": "bits",
+    "copy": "Copy"
+  },
+  "strength": {
+    "very_weak": "Very Weak",
+    "weak": "Weak",
+    "fair": "Fair",
+    "strong": "Strong",
+    "very_strong": "Very Strong",
+    "excellent": "Excellent"
+  },
+  "import": {
+    "title": "Import Passwords",
+    "description": "Import passwords from another password manager.",
+    "selectFile": "Select File",
+    "supportedFormats": "Supported: Bitwarden CSV, 1Password CSV, Chrome CSV, JSON",
+    "importing": "Importing...",
+    "success": "Successfully imported {{count}} entries.",
+    "error": "Import failed"
+  },
+  "export": {
+    "title": "Export Passwords",
+    "description": "Export your passwords for use in another password manager.",
+    "selectFormat": "Select Target Format",
+    "exportBtn": "Export",
+    "warning": "Warning: The exported file will contain your passwords in plaintext. Delete it securely after importing into your target application.",
+    "success": "Successfully exported {{count}} entries.",
+    "error": "Export failed"
+  },
+  "settings": {
+    "title": "Settings",
+    "language": "Language",
+    "autoLock": "Auto-Lock Timeout",
+    "autoLockOptions": {
+      "1": "1 Minute",
+      "5": "5 Minutes",
+      "15": "15 Minutes",
+      "0": "Never"
+    },
+    "vaultLocation": "Vault Location",
+    "currentPath": "Current path",
+    "changePath": "Change Location",
+    "resetPath": "Reset to Default",
+    "changeMasterPassword": "Change Master Password",
+    "about": "About",
+    "version": "Version"
+  },
+  "clipboard": {
+    "copied": "{{label}} copied to clipboard.",
+    "clearing": "Clipboard clears in {{seconds}}s",
+    "cleared": "Clipboard cleared."
+  },
+  "nav": {
+    "passwords": "Passwords",
+    "generator": "Generator",
+    "import": "Import",
+    "export": "Export",
+    "settings": "Settings",
+    "lock": "Lock Vault"
+  },
+  "common": {
+    "close": "Close",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "yes": "Yes",
+    "no": "No",
+    "error": "Error",
+    "success": "Success",
+    "loading": "Loading..."
+  }
+}

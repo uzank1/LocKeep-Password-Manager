@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'none';">
+  <title>LocKeep Password Manager</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+
+<body>
+  <!-- ═══ Lock Screen ═══ -->
+  <div id="lock-screen">
+    <div class="lock-container">
+      <div class="lock-logo">&#128274;</div>
+      <h1 class="lock-title" data-i18n="app.title">LocKeep</h1>
+      <p class="lock-subtitle" data-i18n="app.tagline">Strictly Offline. Zero-Knowledge Security.</p>
+      <form class="lock-form" id="lock-form">
+        <div class="input-group">
+          <input type="password" id="master-password" placeholder="Master Password" data-i18n-attr="placeholder"
+            data-i18n="lock.masterPassword" autocomplete="off" autofocus>
+        </div>
+        <div class="input-group hidden" id="confirm-pw-group">
+          <input type="password" id="confirm-password" placeholder="Confirm Master Password"
+            data-i18n-attr="placeholder" data-i18n="lock.confirmPassword" autocomplete="off">
+        </div>
+
+        <!-- ─── Password Requirements Checklist (shown during vault creation only) ─── -->
+        <div class="pw-requirements hidden" id="pw-requirements">
+          <p class="pw-req-title" data-i18n="lock.requirements.title">Password Requirements</p>
+          <ul class="pw-req-list">
+            <li id="req-length"><span class="req-icon">&#10060;</span> <span data-i18n="lock.requirements.minLength">At
+                least 14 characters</span></li>
+            <li id="req-upper"><span class="req-icon">&#10060;</span> <span data-i18n="lock.requirements.uppercase">At
+                least one uppercase letter (A–Z)</span></li>
+            <li id="req-lower"><span class="req-icon">&#10060;</span> <span data-i18n="lock.requirements.lowercase">At
+                least one lowercase letter (a–z)</span></li>
+            <li id="req-number"><span class="req-icon">&#10060;</span> <span data-i18n="lock.requirements.number">At
+                least one number (0–9)</span></li>
+            <li id="req-special"><span class="req-icon">&#10060;</span> <span data-i18n="lock.requirements.special">At
+                least one special character (!@#$%…)</span></li>
+          </ul>
+          <div class="strength-bar">
+            <div class="strength-bar-fill" id="pw-strength-bar"></div>
+          </div>
+        </div>
+
+        <!-- ─── Zero-Knowledge Warning (shown during vault creation only) ─── -->
+        <div class="zk-warning hidden" id="zk-warning" data-i18n="lock.zeroKnowledgeWarning">
+          CRITICAL: Your Master Password is the absolute key to your vault. LocKeep operates on a strict Zero-Knowledge
+          architecture. If you forget this password, your data cannot be recovered by anyone. Keep it strictly safe.
+        </div>
+
+        <button type="submit" class="btn btn-primary" id="lock-btn" data-i18n="lock.unlock">Unlock Vault</button>
+        <p id="lock-error" class="hidden"
+          style="color:var(--danger);font-size:var(--font-sm);margin-top:var(--space-sm)"></p>
+      </form>
+    </div>
+  </div>
+
+  <!-- ═══ Main App ═══ -->
+  <div id="app" class="hidden">
+    <!-- ─── Sidebar ─── -->
+    <nav id="sidebar">
+      <div class="sidebar-brand">
+        <span class="sidebar-brand-icon">&#128274;</span>
+        <span class="sidebar-brand-text">LocKeep</span>
+      </div>
+      <div class="sidebar-nav">
+        <button class="nav-item active" data-view="passwords"><span class="nav-icon">&#128273;</span><span
+            data-i18n="nav.passwords">Passwords</span></button>
+        <button class="nav-item" data-view="generator"><span class="nav-icon">&#9889;</span><span
+            data-i18n="nav.generator">Password Generator</span></button>
+        <button class="nav-item" data-view="import"><span class="nav-icon">&#128229;</span><span
+            data-i18n="nav.import">Import</span></button>
+        <button class="nav-item" data-view="export"><span class="nav-icon">&#128228;</span><span
+            data-i18n="nav.export">Export</span></button>
+        <button class="nav-item" data-view="integration"><span class="nav-icon">&#128279;</span><span
+            data-i18n="nav.integration">Browser Integration</span></button>
+        <button class="nav-item" data-view="settings"><span class="nav-icon">&#9881;&#65039;</span><span
+            data-i18n="nav.settings">Settings</span></button>
+      </div>
+      <div class="sidebar-footer">
+        <button class="nav-item" id="lock-vault-btn"><span class="nav-icon">&#128274;</span><span
+            data-i18n="nav.lock">Lock Vault</span></button>
+      </div>
+    </nav>
+
+    <!-- ─── Content ─── -->
+    <div id="main-content">
+      <!-- ═══ Passwords View ═══ -->
+      <div class="view-panel active" id="view-passwords">
+        <div class="content-header">
+          <h2 data-i18n="nav.passwords">Passwords</h2>
+          <div style="display:flex;gap:var(--space-md);align-items:center">
+            <span id="entry-count" class="hidden" style="font-size:var(--font-sm);color:var(--text-muted)"></span>
+            <button class="btn btn-primary btn-sm" id="add-entry-btn"><span>+</span> <span data-i18n="vault.addNew">Add
+                New Password</span></button>
+          </div>
+        </div>
+        <div class="content-body">
+          <div class="search-bar">
+            <input type="text" id="search-input" placeholder="Search for your passwords…" data-i18n-attr="placeholder"
+              data-i18n="vault.searchPlaceholder">
+          </div>
+          <div class="entry-list" id="entry-list"></div>
+          <div class="empty-state hidden" id="empty-state">
+            <div class="empty-state-icon">&#128273;</div>
+            <p class="empty-state-text" data-i18n="vault.noEntries">No passwords have been saved yet.</p>
+            <button class="btn btn-primary" id="empty-add-btn"><span>+</span> <span data-i18n="vault.addNew">Add New
+                Password</span></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ Generator View (Simplified) ═══ -->
+      <div class="view-panel" id="view-generator">
+        <div class="content-header">
+          <h2 data-i18n="generator.title">Password Generator</h2>
+        </div>
+        <div class="content-body">
+          <div class="gen-card">
+            <div class="gen-output" id="gen-output" data-i18n="generator.placeholder">Click generate to create a secure
+              password</div>
+            <div class="gen-actions">
+              <button class="btn btn-primary" id="gen-generate-btn" data-i18n="generator.generate">Generate Secure
+                Password</button>
+              <button class="btn btn-secondary" id="gen-copy-btn" data-i18n="generator.copy">Copy to Clipboard</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ Import View ═══ -->
+      <div class="view-panel" id="view-import">
+        <div class="content-header">
+          <h2 data-i18n="import.title">Import Passwords</h2>
+        </div>
+        <div class="content-body">
+          <div class="ie-card">
+            <h3 data-i18n="import.title">Import Passwords</h3>
+            <p data-i18n="import.supportedFormats">Supported: Bitwarden CSV, 1Password CSV, Chrome CSV, JSON</p>
+            <button class="btn btn-primary" id="import-btn" data-i18n="import.selectFile">Select File</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ Export View ═══ -->
+      <div class="view-panel" id="view-export">
+        <div class="content-header">
+          <h2 data-i18n="export.title">Export Passwords</h2>
+        </div>
+        <div class="content-body">
+          <div class="ie-card">
+            <h3 data-i18n="export.title">Export Passwords</h3>
+            <p data-i18n="export.description">Export your passwords for use in another password manager.</p>
+            <div class="input-group" style="margin-bottom:var(--space-lg);text-align:left">
+              <label data-i18n="export.selectFormat">Select Target Format</label>
+              <select id="export-format"></select>
+            </div>
+            <button class="btn btn-primary" id="export-btn" data-i18n="export.exportBtn">Export Passwords</button>
+            <div class="ie-warning" data-i18n="export.warning">Warning: The exported file will contain your passwords in
+              plaintext.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ Browser Integration View ═══ -->
+      <div class="view-panel" id="view-integration">
+        <div class="content-header">
+          <h2 data-i18n="integration.title">Browser Integration</h2>
+        </div>
+        <div class="content-body">
+          <div class="integration-card">
+            <h3 data-i18n="integration.magicInstall">Seamless Installation</h3>
+            <p data-i18n="integration.instructions">1. Open your browser's extension page (e.g.
+              <strong>brave://extensions</strong> or <strong>chrome://extensions</strong>) and enable <strong>Developer
+                Mode</strong>.<br>2. Drag the LocKeep box below directly into your browser window!
+            </p>
+
+            <div class="draggable-box-container">
+              <div class="draggable-box" draggable="true" id="extension-drag-box">
+                <div class="drag-icon-wrapper">
+                  <img src="assets/icons/icon.png" alt="LocKeep Icon">
+                </div>
+                <div class="drag-text">
+                  <span class="drag-title" data-i18n="integration.dragMe">LocKeep Extension</span>
+                  <span class="drag-subtitle" data-i18n="integration.dragSubtitle">Drag me to browser!</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="ie-warning" data-i18n="integration.securityNote" style="margin-top:var(--space-lg)">Security
+              Note: LocKeep connects locally via a secure End-to-End Encrypted (AES-256-GCM) Native Messaging bridge.
+              Your data never leaves your device.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ Settings View ═══ -->
+      <div class="view-panel" id="view-settings">
+        <div class="content-header">
+          <h2 data-i18n="settings.title">Settings</h2>
+        </div>
+        <div class="content-body">
+          <div class="settings-section">
+            <h3 data-i18n="settings.language">Language</h3>
+            <div class="setting-row">
+              <label data-i18n="settings.language">Language</label>
+              <select id="language-select">
+                <option value="en">English</option>
+                <option value="de">Deutsch</option>
+                <option value="tr">Türkçe</option>
+              </select>
+            </div>
+          </div>
+          <div class="settings-section">
+            <h3 data-i18n="settings.autoLock">Auto-Lock Timeout</h3>
+            <div class="setting-row">
+              <label data-i18n="settings.autoLock">Auto-Lock Timeout</label>
+              <select id="autolock-select">
+                <option value="1" data-i18n="settings.autoLockOptions.1">1 Minute</option>
+                <option value="5" selected data-i18n="settings.autoLockOptions.5">5 Minutes</option>
+                <option value="15" data-i18n="settings.autoLockOptions.15">15 Minutes</option>
+                <option value="0" data-i18n="settings.autoLockOptions.0">Never</option>
+              </select>
+            </div>
+          </div>
+          <div class="settings-section">
+            <h3 data-i18n="settings.vaultLocation">Vault Location</h3>
+            <div class="setting-row">
+              <span id="vault-path-display"
+                style="font-size:var(--font-sm);color:var(--text-muted);word-break:break-all;flex:1;margin-right:var(--space-md)"></span>
+              <div style="display:flex;gap:var(--space-sm)">
+                <button class="btn btn-secondary btn-sm" id="change-vault-path-btn"
+                  data-i18n="settings.changePath">Change Location</button>
+                <button class="btn btn-secondary btn-sm" id="reset-vault-path-btn" data-i18n="settings.resetPath">Reset
+                  to Default</button>
+              </div>
+            </div>
+          </div>
+          <div class="settings-section">
+            <h3 data-i18n="settings.changeMasterPassword">Change Master Password</h3>
+            <div style="display:flex;flex-direction:column;gap:var(--space-md);max-width:400px">
+              <input type="password" id="current-master-pw" placeholder="Current Master Password">
+              <input type="password" id="new-master-pw" placeholder="New Master Password">
+              <input type="password" id="confirm-new-master-pw" placeholder="Confirm New Master Password">
+              <button class="btn btn-primary btn-sm" id="change-pw-btn" data-i18n="settings.changeMasterPassword">Change
+                Master Password</button>
+            </div>
+          </div>
+          <div class="settings-section">
+            <h3 data-i18n="settings.about">About</h3>
+            <p style="color:var(--text-muted);font-size:var(--font-sm)">LocKeep Password Manager v1.0.0<br>Strictly
+              Offline. AES-256-GCM + Argon2id. Zero-Knowledge.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Modal Container ═══ -->
+  <div id="modal-container"></div>
+
+  <!-- ═══ Toast Container ═══ -->
+  <div id="toast-container"></div>
+
+  <!-- ═══ Scripts ═══ -->
+  <script src="js/i18n/i18n.js"></script>
+  <script src="js/app.js"></script>
+</body>
+
+</html>

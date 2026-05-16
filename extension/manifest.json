@@ -1,0 +1,57 @@
+{
+  "manifest_version": 3,
+  "name": "LocKeep Password Manager",
+  "version": "1.0.0",
+  "description": "Strictly offline password manager extension — communicates with local desktop app only.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtre6Cih7UCv0KZXnLopgBbgBl24ldmShQ6jrrTkT6dYxhXyU+MVLH7kwO1sFbD7V3YQSyE9S4+ya3jtQT/pACMt5rM9FRJ7s/USgAWMB+wviBEz3gmxQehIWfJ4GSTTcJcdQWUyQLEBBUrkZO94AcZhBkY6eWqxFzhEl+IucjEiPNkuU93VhDHeHBszlg9b+lSmnbUF3TkLKFzEhQDVJyxNq2GRv0VosGLdjNoTi+utQD5bdRT7xjsFTV/8rjryQSCTem1kk7mWu0qrlFJm73R20OnE+2nbpAy8XP/bT60KEMKP4UlWsOXEgPQZsO2pOc9xWKoTqhO4ToZWDTvYTKwIDAQAB",
+  "permissions": [
+    "nativeMessaging",
+    "activeTab",
+    "storage"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "content_script.js"
+      ],
+      "css": [
+        "content_styles.css"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none';"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "icons/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
+}

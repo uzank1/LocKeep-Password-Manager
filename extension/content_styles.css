@@ -1,0 +1,203 @@
+/* extension/content_styles.css */
+:root {
+  --lockeep-bg: #1a1a24;
+  --lockeep-border: #3f3f5a;
+  --lockeep-accent: #6c5ce7;
+  --lockeep-accent-hover: #8073eb;
+  --lockeep-text: #f0f0f5;
+  --lockeep-text-muted: #a0a0b5;
+  --lockeep-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.lockeep-dropdown {
+  position: fixed !important;
+  display: block !important;
+  pointer-events: all !important;
+  background: var(--lockeep-bg) !important;
+  border: 1px solid var(--lockeep-border) !important;
+  border-radius: 8px !important;
+  box-shadow: var(--lockeep-shadow) !important;
+  z-index: 2147483647 !important;
+  /* Max z-index */
+  width: 250px !important;
+  max-height: 200px !important;
+  overflow-y: auto !important;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+  color: var(--lockeep-text) !important;
+  animation: lockeep-fade-in 0.2s ease-out !important;
+}
+
+/* Custom Scrollbar for Dropdown */
+.lockeep-dropdown::-webkit-scrollbar {
+  width: 6px;
+}
+
+.lockeep-dropdown::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.lockeep-dropdown::-webkit-scrollbar-thumb {
+  background: var(--lockeep-border);
+  border-radius: 4px;
+}
+
+.lockeep-dropdown-item {
+  padding: 12px 16px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  transition: background 0.15s ease;
+}
+
+.lockeep-dropdown-item:last-child {
+  border-bottom: none;
+}
+
+.lockeep-dropdown-item:hover {
+  background: rgba(108, 92, 231, 0.15);
+}
+
+.lockeep-dropdown-username {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--lockeep-text);
+}
+
+.lockeep-dropdown-title {
+  font-size: 12px;
+  color: var(--lockeep-text-muted);
+}
+
+.lockeep-generate-icon {
+  position: absolute !important;
+  z-index: 9000 !important;
+  transform: translateY(-50%) !important;
+  display: none;
+  width: 20px !important;
+  height: 20px !important;
+  opacity: 0.6;
+  color: #eb920c;
+  cursor: pointer !important;
+  pointer-events: auto !important;
+  transition: opacity 0.2s, color 0.2s, transform 0.2s;
+  align-items: center;
+  justify-content: center;
+  contain: none !important;
+  isolation: isolate !important;
+}
+
+.lockeep-generate-icon svg {
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0px 1px 2px rgba(0, 0, 0, 0.2));
+}
+
+.lockeep-generate-icon:hover {
+  opacity: 1 !important;
+  color: #eb920c;
+  transform: translateY(-50%) scale(1.15) !important;
+  /* Üzerine gelince şık bir şekilde büyür */
+}
+
+.lockeep-save-prompt {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 320px;
+  background: var(--lockeep-bg);
+  border: 1px solid var(--lockeep-border);
+  border-radius: 12px;
+  box-shadow: var(--lockeep-shadow);
+  z-index: 2147483647;
+  padding: 20px;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  color: var(--lockeep-text);
+  animation: lockeep-slide-up 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.lockeep-save-prompt-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.lockeep-save-prompt-logo {
+  width: 24px;
+  height: 24px;
+}
+
+.lockeep-save-prompt-title {
+  font-weight: 600;
+  font-size: 16px;
+  margin: 0;
+}
+
+.lockeep-save-prompt-body {
+  font-size: 13px;
+  color: var(--lockeep-text-muted);
+  margin-bottom: 20px;
+  line-height: 1.4;
+}
+
+.lockeep-save-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.lockeep-btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s;
+}
+
+.lockeep-btn-secondary {
+  background: transparent;
+  color: var(--lockeep-text-muted);
+}
+
+.lockeep-btn-secondary:hover {
+  color: var(--lockeep-text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.lockeep-btn-primary {
+  background: var(--lockeep-accent);
+  color: #fff;
+}
+
+.lockeep-btn-primary:hover {
+  background: var(--lockeep-accent-hover);
+  box-shadow: 0 4px 12px rgba(108, 92, 231, 0.3);
+}
+
+@keyframes lockeep-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes lockeep-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(40px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
