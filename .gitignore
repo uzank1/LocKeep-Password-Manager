@@ -144,3 +144,4 @@ vite.config.ts.timestamp-*
 
 *.pem
 .DS_Store
+getKey.js
