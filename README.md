@@ -24,3 +24,14 @@ Local E2E Encryption: Even though the extension and desktop app communicate loca
 Strict IPC Bouncer: The frontend (Renderer) has no direct access to Node.js. Every piece of data sent to the backend goes through strict type-checking and length sanitization to prevent object injection or buffer overflow attacks.
 
 Registry Whitelisting: The desktop app only listens to the specific, hardcoded LocKeep extension ID. Malicious extensions cannot hijack the Native Messaging bridge.
+
+🌐 Supported Languages
+LocKeep is built with support for 3 languages and instantly adapts to your preference without needing a restart:
+
+🇹🇷 Turkish (Türkçe)
+
+🇺🇸 English
+
+🇩🇪 German (Deutsch)
+
+(More languages can be added in the future upon request!)
