@@ -34,6 +34,10 @@ const APP_DATA_DIR = path.join(
   'LocKeepPasswordManager'
 );
 const PORT_FILE = path.join(APP_DATA_DIR, '.ipc-port');
+const TOKEN_FILE = path.join(APP_DATA_DIR, '.ipc-token');
+
+// H-02: HKDF info string for domain separation
+const HKDF_INFO = 'lockeep-e2ee-v1';
 
 // ─── E2EE State ─────────────────────────────────────────────────────────────
 
@@ -141,7 +145,17 @@ function sendToApp(command) {
     }
 
     const client = net.createConnection({ host: '127.0.0.1', port }, () => {
-      const data = JSON.stringify(command);
+      // H-03: Read auth token and include in command
+      let token;
+      try {
+        token = fs.readFileSync(TOKEN_FILE, 'utf-8').trim();
+      } catch {
+        reject(new Error('Cannot read IPC auth token.'));
+        client.destroy();
+        return;
+      }
+      const enrichedCommand = { ...command, token };
+      const data = JSON.stringify(enrichedCommand);
       const lengthBuf = Buffer.alloc(4);
       lengthBuf.writeUInt32LE(Buffer.byteLength(data, 'utf-8'), 0);
       client.write(lengthBuf);
@@ -240,6 +254,10 @@ async function handleMessage(message) {
 
       // 3. Compute shared secret
       _sharedSecret = _ecdh.computeSecret(Buffer.from(clientPubKeyBase64, 'base64'));
+
+      // H-02: Derive AES key via HKDF-SHA256 instead of using raw ECDH output
+      _sharedSecret = crypto.hkdfSync('sha256', _sharedSecret, '', HKDF_INFO, 32);
+      _sharedSecret = Buffer.from(_sharedSecret);
 
       return { _requestId: id, success: true, data: { publicKey: hostPubKeyBase64 } };
     }

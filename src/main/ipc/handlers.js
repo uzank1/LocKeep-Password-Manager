@@ -29,6 +29,14 @@ function isSafeString(input, maxLength) {
   return typeof input === 'string' && input.trim().length > 0 && input.length <= maxLength;
 }
 
+// H-01: Rate limiting state for brute-force protection
+const VALID_CATEGORIES = new Set(['login', 'note', 'card', 'identity', 'other']); // M-02
+let _failedAttempts = 0;
+let _lockoutUntil = 0;
+const MAX_FAILURES = 10;
+const LOCKOUT_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+const BACKOFF_CAP_MS = 30 * 1000; // 30 seconds
+
 /**
  * Registers all IPC handlers. Call once from main.js during app initialization.
  */
@@ -57,8 +65,36 @@ function registerAllHandlers() {
     if (!masterPassword || typeof masterPassword !== 'string') {
       return { success: false, message: 'Invalid master password.' };
     }
+
+    // H-01: Check hard lockout
+    const now = Date.now();
+    if (_lockoutUntil > now) {
+      const remainSec = Math.ceil((_lockoutUntil - now) / 1000);
+      return { success: false, message: `Too many failed attempts. Try again in ${remainSec} seconds.` };
+    }
+
+    // H-01: Apply exponential backoff delay
+    if (_failedAttempts > 0) {
+      const delayMs = Math.min(1000 * Math.pow(2, _failedAttempts - 1), BACKOFF_CAP_MS);
+      await new Promise(resolve => global.setTimeout(resolve, delayMs));
+    }
+
     const result = await vaultManager.unlockVault(masterPassword);
-    if (result.success) autoLock.start();
+
+    if (result.success) {
+      _failedAttempts = 0; // H-01: Reset on success
+      _lockoutUntil = 0;
+      autoLock.start();
+    } else {
+      _failedAttempts++;
+      // H-01: Hard lockout after MAX_FAILURES
+      if (_failedAttempts >= MAX_FAILURES) {
+        _lockoutUntil = Date.now() + LOCKOUT_DURATION_MS;
+        _failedAttempts = 0;
+        return { success: false, message: 'Too many failed attempts. Vault locked for 5 minutes.' };
+      }
+    }
+
     return result;
   });
 
@@ -72,7 +108,7 @@ function registerAllHandlers() {
     if (!currentPw || !newPw) {
       return { success: false, message: 'Both passwords required.' };
     }
-    return vaultManager.changeMasterPassword(currentPw, newPw);
+    return await vaultManager.changeMasterPassword(currentPw, newPw);
   });
 
   // ── Entry CRUD ────────────────────────────────────────────────────────
@@ -94,7 +130,7 @@ function registerAllHandlers() {
     }
   });
 
-  ipcMain.handle('vault:addEntry', (_event, entryData) => {
+  ipcMain.handle('vault:addEntry', async (_event, entryData) => {
     // 🚨 1. AŞAMA: Tip Kontrolü (Obje olmalı, Array olmamalı)
     if (!entryData || typeof entryData !== 'object' || Array.isArray(entryData)) {
       console.error('[GÜVENLİK] Geçersiz entryData formatı reddedildi.');
@@ -102,7 +138,6 @@ function registerAllHandlers() {
     }
 
     // 🚨 2. AŞAMA: RAM Şişirme / Kötü Kod Sınırları
-    // Not: Veri varsa ve metinse uzunluğunu kontrol et, yoksa geç (bazı şifrelerin URL'si boş olabilir)
     if (entryData.url && (typeof entryData.url !== 'string' || entryData.url.length > 2000)) {
       return { success: false, message: 'Güvenlik İhlali: URL çok uzun veya geçersiz.' };
     }
@@ -112,15 +147,26 @@ function registerAllHandlers() {
     if (entryData.password && (typeof entryData.password !== 'string' || entryData.password.length > 1024)) {
       return { success: false, message: 'Güvenlik İhlali: Şifre çok uzun veya geçersiz.' };
     }
+    // M-02: Validate title and notes length
+    if (entryData.title && (typeof entryData.title !== 'string' || entryData.title.length > 500)) {
+      return { success: false, message: 'Güvenlik İhlali: Başlık çok uzun veya geçersiz.' };
+    }
+    if (entryData.notes && (typeof entryData.notes !== 'string' || entryData.notes.length > 10000)) {
+      return { success: false, message: 'Güvenlik İhlali: Notlar çok uzun veya geçersiz.' };
+    }
+    // M-02: Validate category against allowlist
+    if (entryData.category && !VALID_CATEGORIES.has(String(entryData.category).toLowerCase())) {
+      entryData.category = 'login'; // Fallback to default
+    }
 
     try {
-      return vaultManager.addEntry(entryData);
+      return await vaultManager.addEntry(entryData);
     } catch (err) {
       return { success: false, message: err.message };
     }
   });
 
-  ipcMain.handle('vault:updateEntry', (_event, id, updates) => {
+  ipcMain.handle('vault:updateEntry', async (_event, id, updates) => {
     // 🚨 ID Kontrolü (Max 50 karakterli bir metin olmalı)
     if (!isSafeString(id, 50)) {
       return { success: false, message: 'Güvenlik İhlali: Geçersiz ID formatı.' };
@@ -132,13 +178,13 @@ function registerAllHandlers() {
     }
 
     try {
-      return vaultManager.updateEntry(id, updates);
+      return await vaultManager.updateEntry(id, updates);
     } catch (err) {
       return { success: false, message: err.message };
     }
   });
 
-  ipcMain.handle('vault:deleteEntry', (_event, id) => {
+  ipcMain.handle('vault:deleteEntry', async (_event, id) => {
     // 🚨 ID içine SQL/Dosya yolu kodu sızdırılmasını engelle
     if (!isSafeString(id, 50)) {
       console.error('[GÜVENLİK] Geçersiz ID ile silme girişimi engellendi:', id);
@@ -146,7 +192,7 @@ function registerAllHandlers() {
     }
 
     try {
-      return vaultManager.deleteEntry(id);
+      return await vaultManager.deleteEntry(id);
     } catch (err) {
       return { success: false, message: err.message };
     }
@@ -202,7 +248,7 @@ function registerAllHandlers() {
 
     // Add imported entries to vault
     try {
-      const addResult = vaultManager.addBulkEntries(importResult.entries);
+      const addResult = await vaultManager.addBulkEntries(importResult.entries);
       return {
         success: true,
         message: `Imported ${addResult.imported} entries from ${importResult.format} format.`,
@@ -282,7 +328,7 @@ function registerAllHandlers() {
   });
 
   ipcMain.handle('autolock:setTimeout', (_event, minutes) => {
-    autoLock.setTimeout(typeof minutes === 'number' ? minutes : 5);
+    autoLock.setLockTimeout(typeof minutes === 'number' ? minutes : 5);
     vaultManager.saveSettings({ autoLockMinutes: minutes });
     return { success: true };
   });

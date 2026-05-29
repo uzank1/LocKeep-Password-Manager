@@ -118,9 +118,18 @@ function setupEventListeners() {
 }
 
 function setupActivityReporting() {
+  // P-07: Use throttle (not debounce) at 30s with pointerdown (not mousemove)
   const report = () => { if (vault.reportActivity) vault.reportActivity(); };
-  document.addEventListener('mousemove', debounce(report, 10000), { passive: true });
-  document.addEventListener('keydown', debounce(report, 10000), { passive: true });
+  let _lastReport = 0;
+  const throttledReport = () => {
+    const now = Date.now();
+    if (now - _lastReport >= 30000) {
+      _lastReport = now;
+      report();
+    }
+  };
+  document.addEventListener('pointerdown', throttledReport, { passive: true });
+  document.addEventListener('keydown', throttledReport, { passive: true });
 }
 
 function setupMainProcessListeners() {
@@ -312,6 +321,9 @@ function renderEntries(entries) {
     return (a.title || '').localeCompare(b.title || '');
   });
 
+  // P-06: Use DocumentFragment for batched DOM insertion
+  const fragment = document.createDocumentFragment();
+
   for (const entry of sorted) {
     const card = document.createElement('div');
     card.className = 'entry-card';
@@ -328,8 +340,10 @@ function renderEntries(entries) {
     `;
 
     card.addEventListener('click', () => showEntryDetail(entry.id));
-    entryList.appendChild(card);
+    fragment.appendChild(card);
   }
+
+  entryList.appendChild(fragment);
 }
 
 function handleSearch() {
@@ -364,13 +378,13 @@ async function showEntryDetail(id) {
       <div class="modal-body">
         <div class="input-group">
           <label>${I18n.t('entry.username')}</label>
-          <div style="display:flex;gap:var(--space-sm)">
-            <input type="text" value="${escapeAttr(entry.username)}" readonly style="flex:1">
+          <div class="flex-row-sm">
+            <input type="text" value="${escapeAttr(entry.username)}" readonly class="flex-1">
             <button class="btn btn-secondary btn-sm" data-copy="username">${I18n.t('entry.copyUsername')}</button>
           </div>
         </div>
         <div class="input-group">
-          <label>${I18n.t('entry.password')} <small style="color:var(--text-muted)">(${I18n.t('entry.hoverToReveal')})</small></label>
+          <label>${I18n.t('entry.password')} <small class="detail-pw-hint">(${I18n.t('entry.hoverToReveal')})</small></label>
           <div class="password-display">
             <span class="password-masked" id="pw-display" data-pw="${escapeAttr(entry.password)}">\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022</span>
             <button class="btn btn-secondary btn-sm" data-copy="password">${I18n.t('entry.copyPassword')}</button>
@@ -384,7 +398,7 @@ async function showEntryDetail(id) {
           <label>${I18n.t('entry.notes')}</label>
           <textarea readonly>${escapeHtml(entry.notes || '')}</textarea>
         </div>
-        <div style="font-size:var(--font-xs);color:var(--text-muted)">
+        <div class="text-meta">
           ${I18n.t('entry.createdAt')}: ${new Date(entry.createdAt).toLocaleString()}<br>
           ${I18n.t('entry.updatedAt')}: ${new Date(entry.updatedAt).toLocaleString()}
         </div>
@@ -456,8 +470,8 @@ function showEntryModal(existingEntry = null) {
         </div>
         <div class="input-group">
           <label>${I18n.t('entry.password')}</label>
-          <div style="display:flex;gap:var(--space-sm)">
-            <input type="password" id="edit-password" value="${escapeAttr(existingEntry?.password || '')}" style="flex:1">
+          <div class="flex-row-sm">
+            <input type="password" id="edit-password" value="${escapeAttr(existingEntry?.password || '')}" class="flex-1">
             <button class="btn btn-secondary btn-sm" id="edit-gen-pw">\u26A1</button>
           </div>
         </div>
@@ -469,7 +483,7 @@ function showEntryModal(existingEntry = null) {
           <label>${I18n.t('entry.notes')}</label>
           <textarea id="edit-notes">${escapeHtml(existingEntry?.notes || '')}</textarea>
         </div>
-        <label style="display:flex;align-items:center;gap:var(--space-sm);font-size:var(--font-sm);color:var(--text-secondary);cursor:pointer">
+        <label class="favorite-label">
           <input type="checkbox" id="edit-favorite" ${existingEntry?.favorite ? 'checked' : ''}> ${I18n.t('entry.favorite')}
         </label>
       </div>

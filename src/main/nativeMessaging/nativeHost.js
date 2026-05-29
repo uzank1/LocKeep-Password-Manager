@@ -21,11 +21,15 @@ const { app, BrowserWindow } = require('electron');
 
 const vaultManager      = require('../vault/vaultManager');
 const passwordGenerator = require('../vault/passwordGenerator');
+const crypto            = require('crypto');
 
-// ─── State ──────────────────────────────────────────────────────────────────
+// ─── State ────────────────────────────────────────────────────────────────────
 
 let _server = null;
+/** @type {string|null} H-03: Random auth token for IPC authentication */
+let _authToken = null;
 const PORT_FILE = path.join(app.getPath('appData'), 'LocKeepPasswordManager', '.ipc-port');
+const TOKEN_FILE = path.join(app.getPath('appData'), 'LocKeepPasswordManager', '.ipc-token');
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
@@ -75,10 +79,12 @@ function startServer() {
     _server.listen(0, '127.0.0.1', () => {
       const port = _server.address().port;
 
-      // Write port to file so native host can discover it
+      // H-03: Generate random auth token and write to file
+      _authToken = crypto.randomBytes(32).toString('hex');
       const dir = path.dirname(PORT_FILE);
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(PORT_FILE, String(port), 'utf-8');
+      fs.writeFileSync(TOKEN_FILE, _authToken, 'utf-8');
 
       console.log(`[IPC Server] Listening on 127.0.0.1:${port}`);
       resolve(port);
@@ -96,8 +102,10 @@ function stopServer() {
     _server.close();
     _server = null;
   }
-  // Remove port file
+  // Remove port and token files
   try { fs.unlinkSync(PORT_FILE); } catch { /* fine */ }
+  try { fs.unlinkSync(TOKEN_FILE); } catch { /* fine */ }
+  _authToken = null;
 }
 
 // ─── Command Handler ────────────────────────────────────────────────────────
@@ -112,6 +120,11 @@ async function handleNativeCommand(jsonStr) {
 
   if (!vaultManager.isUnlocked() && command.action !== 'ping') {
     return { success: false, error: 'Vault is locked.' };
+  }
+
+  // H-03: Validate auth token on every request
+  if (!_authToken || command.token !== _authToken) {
+    return { success: false, error: 'Authentication failed: invalid or missing token.' };
   }
 
   switch (command.action) {
@@ -138,7 +151,7 @@ async function handleNativeCommand(jsonStr) {
 
     case 'addEntry':
       try {
-        const result = vaultManager.addEntry(command.entry || {});
+        const result = await vaultManager.addEntry(command.entry || {});
         BrowserWindow.getAllWindows().forEach(win => {
           if (win && !win.isDestroyed()) {
             win.webContents.send('vault:updated');

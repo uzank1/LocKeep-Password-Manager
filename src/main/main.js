@@ -130,7 +130,7 @@ function enforceCSP() {
         'Content-Security-Policy': [
           "default-src 'none'; " +
           "script-src 'self'; " +
-          "style-src 'self' 'unsafe-inline'; " +   // Allow inline styles for dynamic UI
+          "style-src 'self'; " +                // M-01: 'unsafe-inline' removed — all styles now in CSS classes
           "font-src 'self'; " +
           "img-src 'self' data:; " +
           "connect-src 'none'; " +                   // Block all network connections

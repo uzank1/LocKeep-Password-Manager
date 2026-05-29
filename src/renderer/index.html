@@ -4,8 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy"
-    content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'none';">
+  <!-- M-01: CSP meta tag removed — programmatic CSP in main.js takes precedence -->
   <title>LocKeep Password Manager</title>
   <link rel="stylesheet" href="css/styles.css">
 </head>
@@ -54,8 +53,7 @@
         </div>
 
         <button type="submit" class="btn btn-primary" id="lock-btn" data-i18n="lock.unlock">Unlock Vault</button>
-        <p id="lock-error" class="hidden"
-          style="color:var(--danger);font-size:var(--font-sm);margin-top:var(--space-sm)"></p>
+        <p id="lock-error" class="lock-error-text hidden"></p>
       </form>
     </div>
   </div>
@@ -94,8 +92,8 @@
       <div class="view-panel active" id="view-passwords">
         <div class="content-header">
           <h2 data-i18n="nav.passwords">Passwords</h2>
-          <div style="display:flex;gap:var(--space-md);align-items:center">
-            <span id="entry-count" class="hidden" style="font-size:var(--font-sm);color:var(--text-muted)"></span>
+          <div class="flex-row-md">
+            <span id="entry-count" class="hidden text-muted-sm"></span>
             <button class="btn btn-primary btn-sm" id="add-entry-btn"><span>+</span> <span data-i18n="vault.addNew">Add
                 New Password</span></button>
           </div>
@@ -156,7 +154,7 @@
           <div class="ie-card">
             <h3 data-i18n="export.title">Export Passwords</h3>
             <p data-i18n="export.description">Export your passwords for use in another password manager.</p>
-            <div class="input-group" style="margin-bottom:var(--space-lg);text-align:left">
+            <div class="input-group ie-input-group">
               <label data-i18n="export.selectFormat">Select Target Format</label>
               <select id="export-format"></select>
             </div>
@@ -192,7 +190,7 @@
               </div>
             </div>
 
-            <div class="ie-warning" data-i18n="integration.securityNote" style="margin-top:var(--space-lg)">Security
+            <div class="ie-warning ie-warning-mt" data-i18n="integration.securityNote">Security
               Note: LocKeep connects locally via a secure End-to-End Encrypted (AES-256-GCM) Native Messaging bridge.
               Your data never leaves your device.</div>
           </div>
@@ -231,9 +229,8 @@
           <div class="settings-section">
             <h3 data-i18n="settings.vaultLocation">Vault Location</h3>
             <div class="setting-row">
-              <span id="vault-path-display"
-                style="font-size:var(--font-sm);color:var(--text-muted);word-break:break-all;flex:1;margin-right:var(--space-md)"></span>
-              <div style="display:flex;gap:var(--space-sm)">
+              <span id="vault-path-display" class="vault-path-text"></span>
+              <div class="flex-row-sm">
                 <button class="btn btn-secondary btn-sm" id="change-vault-path-btn"
                   data-i18n="settings.changePath">Change Location</button>
                 <button class="btn btn-secondary btn-sm" id="reset-vault-path-btn" data-i18n="settings.resetPath">Reset
@@ -243,7 +240,7 @@
           </div>
           <div class="settings-section">
             <h3 data-i18n="settings.changeMasterPassword">Change Master Password</h3>
-            <div style="display:flex;flex-direction:column;gap:var(--space-md);max-width:400px">
+            <div class="change-pw-layout">
               <input type="password" id="current-master-pw" placeholder="Current Master Password">
               <input type="password" id="new-master-pw" placeholder="New Master Password">
               <input type="password" id="confirm-new-master-pw" placeholder="Confirm New Master Password">
@@ -253,7 +250,7 @@
           </div>
           <div class="settings-section">
             <h3 data-i18n="settings.about">About</h3>
-            <p style="color:var(--text-muted);font-size:var(--font-sm)">LocKeep Password Manager v1.0.0<br>Strictly
+            <p class="text-muted-sm">LocKeep Password Manager v1.0.0<br>Strictly
               Offline. AES-256-GCM + Argon2id. Zero-Knowledge.</p>
           </div>
         </div>
