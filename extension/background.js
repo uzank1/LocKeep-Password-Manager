@@ -13,6 +13,8 @@
 
 'use strict';
 
+const DEBUG = false;
+
 const HOST_NAME = 'com.sifreyoneticisi.host';
 let _port = null;
 let _pendingRequests = new Map();
@@ -21,6 +23,11 @@ let _cachedLanguage = 'en';
 let _pendingSave = null;
 /** @type {ReturnType<typeof setTimeout>|null} C-03: TTL timer for _pendingSave auto-clear */
 let _pendingSaveTimer = null;
+
+// Multi-step form tracking in-memory state (M-1)
+let _lastUsername = null;
+let _lastUsernameDomain = null;
+let _lastUsernameTime = 0;
 
 // E2EE State
 let _sharedSecretKey = null;
@@ -169,7 +176,7 @@ function ensurePort() {
   _port = chrome.runtime.connectNative(HOST_NAME);
 
   _port.onMessage.addListener(async (msg) => {
-    console.log(" NATIVE RAW MSG:", msg);
+    if (DEBUG) console.log(" NATIVE RAW MSG:", msg);
     const id = msg._requestId || msg.requestId || msg.id;
     if (id && _pendingRequests.has(id)) {
       const { resolve, reject } = _pendingRequests.get(id);
@@ -262,14 +269,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
         case 'SEARCH_DOMAIN':
           try {
-            console.log(`[DIAGNOSTIC - Background] 1. Received SEARCH_DOMAIN raw domain: "${message.domain}"`);
+            if (DEBUG) console.log(`[DIAGNOSTIC - Background] 1. Received SEARCH_DOMAIN raw domain: "${message.domain}"`);
             let cleanOrigin = message.domain;
             try {
               cleanOrigin = new URL(cleanOrigin.startsWith('http') ? cleanOrigin : `https://${cleanOrigin}`).origin;
             } catch (e) { }
-            console.log(`[DIAGNOSTIC - Background] 2. Sending to Native Host (cleanOrigin): "${cleanOrigin}"`);
+            if (DEBUG) console.log(`[DIAGNOSTIC - Background] 2. Sending to Native Host (cleanOrigin): "${cleanOrigin}"`);
             response = await sendNativeMessage('QUERY_CREDENTIALS', { domain: cleanOrigin });
-            console.log(`[DIAGNOSTIC - Background] 3. Response from Native Host:`, response);
+            if (DEBUG) console.log(`[DIAGNOSTIC - Background] 3. Response from Native Host:`, response);
 
             // KESİN ÇÖZÜM: Kasa kilitli hatası geldiyse filtreye sokma, doğrudan popup'a ilet
             if (response && response.error === 'Vault is locked.') {
@@ -293,6 +300,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           if (response && response.success) {
             _pendingSave = null;
             if (_pendingSaveTimer) { clearTimeout(_pendingSaveTimer); _pendingSaveTimer = null; }
+            _lastUsername = null;
+            _lastUsernameDomain = null;
+            _lastUsernameTime = 0;
           }
           break;
         case 'SET_PENDING_SAVE':
@@ -311,6 +321,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case 'CLEAR_PENDING_SAVE':
           _pendingSave = null;
           if (_pendingSaveTimer) { clearTimeout(_pendingSaveTimer); _pendingSaveTimer = null; }
+          _lastUsername = null;
+          _lastUsernameDomain = null;
+          _lastUsernameTime = 0;
+          response = { success: true };
+          break;
+        case 'SET_LAST_USERNAME':
+          _lastUsername = message.username;
+          _lastUsernameDomain = message.domain;
+          _lastUsernameTime = Date.now();
+          response = { success: true };
+          break;
+        case 'GET_LAST_USERNAME':
+          if (_lastUsername && Date.now() - _lastUsernameTime < 15 * 60 * 1000) {
+            response = {
+              success: true,
+              username: _lastUsername,
+              domain: _lastUsernameDomain,
+              time: _lastUsernameTime
+            };
+          } else {
+            _lastUsername = null;
+            _lastUsernameDomain = null;
+            _lastUsernameTime = 0;
+            response = { success: false, error: 'Expired or not set' };
+          }
+          break;
+        case 'CLEAR_LAST_USERNAME':
+          _lastUsername = null;
+          _lastUsernameDomain = null;
+          _lastUsernameTime = 0;
           response = { success: true };
           break;
         case 'GENERATE_PASSWORD':

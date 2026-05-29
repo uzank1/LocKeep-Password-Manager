@@ -6,6 +6,8 @@
 
 'use strict';
 
+const DEBUG = false;
+
 class LocKeepContentScript {
   constructor() {
     this.domain = window.location.hostname;
@@ -99,12 +101,9 @@ class LocKeepContentScript {
   // ─── Init ─────────────────────────────────────────────────────────────────
 
   async init() {
-    // C-03: Clean up stale chrome.storage.local entries (TTL: 2 minutes)
+    // Legacy cleanup: remove old chrome.storage.local entries once
     try {
-      const stored = await chrome.storage.local.get(['lockeep_last_time']);
-      if (stored.lockeep_last_time && Date.now() - stored.lockeep_last_time > 2 * 60 * 1000) {
-        await chrome.storage.local.remove(['lockeep_last_username', 'lockeep_last_domain', 'lockeep_last_time']);
-      }
+      await chrome.storage.local.remove(['lockeep_last_username', 'lockeep_last_domain', 'lockeep_last_time']);
     } catch (e) { }
 
     // BUG-2 FIX: Resolve and cache language early so injectGenerateIcon can use
@@ -169,11 +168,11 @@ class LocKeepContentScript {
 
         const val = target.value.trim();
         if (val.length > 0) {
-          chrome.storage.local.set({
-            lockeep_last_username: val,
-            lockeep_last_domain: this.getBaseDomain(this.domain),
-            lockeep_last_time: Date.now()  // C-03: timestamp for TTL enforcement
-          });
+          this.sendMessageToBackground({
+            type: 'SET_LAST_USERNAME',
+            username: val,
+            domain: this.getBaseDomain(this.domain)
+          }).catch(() => {});
         }
       }
     }, true);
@@ -199,15 +198,15 @@ class LocKeepContentScript {
   async _fetchCredentials() {
     try {
       const baseDomain = this.getBaseDomain(this.domain);
-      console.log(`[DIAGNOSTIC - Content] 1. Requesting credentials for origin: "${window.location.origin}", baseDomain: "${baseDomain}"`);
+      if (DEBUG) console.log(`[DIAGNOSTIC - Content] 1. Requesting credentials for origin: "${window.location.origin}", baseDomain: "${baseDomain}"`);
       const response = await this.sendMessageToBackground({
         type: 'SEARCH_DOMAIN',
         domain: window.location.origin,
         baseDomain: baseDomain
       });
-      console.log(`[DIAGNOSTIC - Content] 2. Raw Response from Background:`, response);
+      if (DEBUG) console.log(`[DIAGNOSTIC - Content] 2. Raw Response from Background:`, response);
       if (response && response.success && response.data && Array.isArray(response.data.entries)) {
-        console.log("LocKeep: Data received for UI:", response.data.entries);
+        if (DEBUG) console.log("LocKeep: Data received for UI:", response.data.entries);
         this.credentials = response.data.entries.filter(entry => {
           const entryDomain = entry.domain || entry.url || '';
           return this.getBaseDomain(entryDomain) === baseDomain;
@@ -341,7 +340,7 @@ class LocKeepContentScript {
 
   analyzeAndInject() {
     const passwordInputs = Array.from(document.querySelectorAll('input[type="password"]'));
-    console.log(`[DIAGNOSTIC - DOM] 1. Found Password Inputs:`, passwordInputs.length);
+    if (DEBUG) console.log(`[DIAGNOSTIC - DOM] 1. Found Password Inputs:`, passwordInputs.length);
     if (passwordInputs.length === 0) return;
 
     passwordInputs.forEach(passInput => {
@@ -351,7 +350,7 @@ class LocKeepContentScript {
       const form = passInput.closest('form') || document.body;
       const usernameInput = this.findUsernameInput(form, passInput);
       const isSignup = this.isSignupForm(form, passInput);
-      console.log(`[DIAGNOSTIC - DOM] 2. Form Analysis:`, { usernameInputFound: !!usernameInput, isSignup, credsCount: this.credentials?.length });
+      if (DEBUG) console.log(`[DIAGNOSTIC - DOM] 2. Form Analysis:`, { usernameInputFound: !!usernameInput, isSignup, credsCount: this.credentials?.length });
 
       if (isSignup) {
         // BUG-5 FIX: usernameInput is no longer passed — icon positioning is
@@ -687,13 +686,15 @@ class LocKeepContentScript {
 
       // ANLIK HAFIZA OKUYUCU: Sayfada yoksa anlık hafızadan çek
       if (!username) {
-        const res = await chrome.storage.local.get(['lockeep_last_username', 'lockeep_last_domain', 'lockeep_last_time']);
+        const res = await this.sendMessageToBackground({ type: 'GET_LAST_USERNAME' });
         if (
-          res.lockeep_last_username &&
-          this.getBaseDomain(res.lockeep_last_domain) === this.getBaseDomain(this.domain) &&
-          Date.now() - res.lockeep_last_time < 15 * 60 * 1000
+          res &&
+          res.success &&
+          res.username &&
+          this.getBaseDomain(res.domain) === this.getBaseDomain(this.domain) &&
+          Date.now() - res.time < 15 * 60 * 1000
         ) {
-          username = res.lockeep_last_username;
+          username = res.username;
         }
       }
 
