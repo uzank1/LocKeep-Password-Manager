@@ -522,6 +522,17 @@ async function deleteEntry(id) {
  * P-05: Uses the in-memory domain index for O(1) lookup instead of
  * scanning all entries on every search.
  */
+function extractHost(cleanStr) {
+  if (!cleanStr) return '';
+  const hostPart = cleanStr.split('/')[0];
+  return hostPart.split(':')[0];
+}
+
+function _matchHosts(h1, h2) {
+  if (!h1 || !h2) return false;
+  return h1 === h2 || h1.endsWith('.' + h2) || h2.endsWith('.' + h1);
+}
+
 function searchByDomain(domainQuery) {
   requireUnlocked();
 
@@ -538,12 +549,14 @@ function searchByDomain(domainQuery) {
   // Also check for partial/subdomain matches via a linear fallback
   // (handles cases like "login.github.com" matching "github.com")
   const indexMatches = new Set(matchedEntries.map(e => e.id));
+  const hostQuery = extractHost(cleanQuery);
   for (const entry of _entries) {
     if (indexMatches.has(entry.id)) continue;
     const cleanUrl = _cleanDomain(entry.url);
     const cleanDomain = _cleanDomain(entry.domain);
-    if ((cleanUrl && (cleanUrl.includes(cleanQuery) || cleanQuery.includes(cleanUrl))) ||
-        (cleanDomain && (cleanDomain.includes(cleanQuery) || cleanQuery.includes(cleanDomain)))) {
+    const hostUrl = extractHost(cleanUrl);
+    const hostDomain = extractHost(cleanDomain);
+    if (_matchHosts(hostUrl, hostQuery) || _matchHosts(hostDomain, hostQuery)) {
       matchedEntries.push(entry);
     }
   }
