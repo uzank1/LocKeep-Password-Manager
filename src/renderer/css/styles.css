@@ -749,3 +749,18 @@ textarea { resize: vertical; min-height: 80px; }
   text-transform: uppercase;
   letter-spacing: 1px;
 }
+
+/* ─── M-01: Utility Classes (replacing inline styles for CSP compliance) ──── */
+.flex-row-sm { display: flex; gap: var(--space-sm); }
+.flex-row-md { display: flex; gap: var(--space-md); align-items: center; }
+.flex-col-md { display: flex; flex-direction: column; gap: var(--space-md); max-width: 400px; }
+.text-meta { font-size: var(--font-xs); color: var(--text-muted); }
+.text-muted-sm { font-size: var(--font-sm); color: var(--text-muted); }
+.vault-path-text { font-size: var(--font-sm); color: var(--text-muted); word-break: break-all; flex: 1; margin-right: var(--space-md); }
+.change-pw-layout { display: flex; flex-direction: column; gap: var(--space-md); max-width: 400px; }
+.lock-error-text { color: var(--danger); font-size: var(--font-sm); margin-top: var(--space-sm); }
+.ie-input-group { margin-bottom: var(--space-lg); text-align: left; }
+.ie-warning-mt { margin-top: var(--space-lg); }
+.flex-1 { flex: 1; }
+.detail-pw-hint { color: var(--text-muted); }
+.favorite-label { display: flex; align-items: center; gap: var(--space-sm); font-size: var(--font-sm); color: var(--text-secondary); cursor: pointer; }

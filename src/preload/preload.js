@@ -67,12 +67,12 @@ contextBridge.exposeInMainWorld('vault', {
   resetVaultPath:    ()           => ipcRenderer.invoke('settings:resetVaultPath'),
 
   // ── Event Listeners (Main → Renderer) ───────────────────────────────────
-  // These allow the renderer to listen for events pushed from main process.
-  onVaultLocked:      (callback) => ipcRenderer.on('vault:locked', (_e) => callback()),
-  onVaultUpdated:     (callback) => ipcRenderer.on('vault:updated', (_e) => callback()),
-  onClipboardCopied:  (callback) => ipcRenderer.on('clipboard:copied', (_e, data) => callback(data)),
-  onClipboardCountdown:(callback) => ipcRenderer.on('clipboard:countdown', (_e, data) => callback(data)),
-  onClipboardCleared: (callback) => ipcRenderer.on('clipboard:cleared', (_e, data) => callback(data)),
+  // M-03: Each listener returns a cleanup function to prevent listener accumulation.
+  onVaultLocked:      (callback) => { const handler = (_e) => callback(); ipcRenderer.on('vault:locked', handler); return () => ipcRenderer.removeListener('vault:locked', handler); },
+  onVaultUpdated:     (callback) => { const handler = (_e) => callback(); ipcRenderer.on('vault:updated', handler); return () => ipcRenderer.removeListener('vault:updated', handler); },
+  onClipboardCopied:  (callback) => { const handler = (_e, data) => callback(data); ipcRenderer.on('clipboard:copied', handler); return () => ipcRenderer.removeListener('clipboard:copied', handler); },
+  onClipboardCountdown:(callback) => { const handler = (_e, data) => callback(data); ipcRenderer.on('clipboard:countdown', handler); return () => ipcRenderer.removeListener('clipboard:countdown', handler); },
+  onClipboardCleared: (callback) => { const handler = (_e, data) => callback(data); ipcRenderer.on('clipboard:cleared', handler); return () => ipcRenderer.removeListener('clipboard:cleared', handler); },
 
   // ── Native Drag and Drop ────────────────────────────────────────────────
   startExtensionDrag: () => ipcRenderer.send('drag-extension')

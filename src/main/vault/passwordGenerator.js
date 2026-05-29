@@ -32,8 +32,9 @@ const PRESETS = {
   paranoid: { length: 64, uppercase: true, lowercase: true, digits: true, symbols: true }
 };
 
-// ─── Wordlist for passphrases (EFF short wordlist subset — 200 words) ───────
-// These are common, easy-to-type English words for memorable passphrases.
+// ─── Wordlist for passphrases (EFF short wordlist subset — 400 words) ───────
+// P-09: Expanded from 200 → 400 words for improved entropy (~8.6 bits/word).
+// Words are common, easy-to-spell English words (≤6 chars).
 const WORDLIST = [
   'anchor','apple','arrow','badge','baker','beach','blade','blank','blaze','bloom',
   'board','bonus','brave','brick','bridge','brush','cabin','cable','cargo','cedar',
@@ -54,7 +55,28 @@ const WORDLIST = [
   'plaza','plume','point','polar','pound','power','press','pride','prime','print',
   'prize','probe','prose','pulse','purse','quest','quiet','quota','radar','range',
   'rapid','realm','rebel','reign','relay','ridge','rival','river','robin','royal',
-  'rural','saint','salad','scale','scene','scope','scout','serve','shade','shaft'
+  'rural','saint','salad','scale','scene','scope','scout','serve','shade','shaft',
+  // P-09: 200 additional words
+  'shape','share','shelf','shell','shift','shine','shore','shown','siege','sight',
+  'sigma','silly','sixth','skill','slate','sleep','slice','slide','slope','smart',
+  'smile','smoke','snake','solar','solve','sonic','sound','south','space','spark',
+  'speak','spell','spend','spice','spine','spoke','sport','spray','squad','stack',
+  'staff','stage','stain','stake','stall','stamp','stand','stark','start','state',
+  'steal','steam','steel','steep','steer','stern','stick','still','stock','stone',
+  'stood','store','storm','story','stove','strap','straw','strip','study','stuff',
+  'style','sugar','suite','sunny','surge','swamp','sweep','sweet','swift','swing',
+  'sword','table','taken','taste','teach','tempo','tense','theme','thick','think',
+  'thorn','threw','throw','thumb','tidal','tiger','tight','timer','toast','today',
+  'token','total','touch','tough','tower','toxic','trace','track','trade','trail',
+  'train','trait','trend','trial','tribe','trick','troop','truck','truly','trump',
+  'trunk','trust','truth','tuner','twist','ultra','uncle','under','union','unity',
+  'upper','urban','usage','usual','utter','valid','value','valve','vapor','vault',
+  'verse','video','vigor','vinyl','viral','visit','vital','vivid','vocal','voice',
+  'voter','wafer','wages','watch','water','waves','weary','wedge','wheat','wheel',
+  'where','whole','width','winds','witch','woman','world','worry','worst','worth',
+  'wound','wrist','wrote','yacht','yield','young','youth','zebra','zilch','zones',
+  'adapt','admit','adopt','align','alone','altar','amaze','anger','angle','arose',
+  'asset','atlas','avoid','awake','basin','began','begun','being','below','bench'
 ];
 
 // ─── Public API ─────────────────────────────────────────────────────────────

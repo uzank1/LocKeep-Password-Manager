@@ -39,14 +39,14 @@ let _lastActivity = Date.now();
  */
 function initialize(onLockCallback, timeoutMinutes = 5) {
   _onLock = onLockCallback;
-  setTimeout(timeoutMinutes);
+  setLockTimeout(timeoutMinutes);
 }
 
 /**
  * Sets the auto-lock timeout.
  * @param {number} minutes - Timeout in minutes (0 = never/disabled)
  */
-function setTimeout(minutes) {
+function setLockTimeout(minutes) {
   if (minutes <= 0) {
     _enabled = false;
     _timeoutMs = 0;
@@ -129,7 +129,7 @@ function clearTimer() {
 
 module.exports = {
   initialize,
-  setTimeout,
+  setLockTimeout,
   recordActivity,
   start,
   stop,

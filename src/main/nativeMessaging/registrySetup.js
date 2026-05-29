@@ -12,7 +12,7 @@
 const fs = require('fs');
 const path = require('path');
 const { app } = require('electron');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 
 const HOST_NAME = 'com.sifreyoneticisi.host';
 const EXTENSION_ID = 'ekbnnplonjmlbmeobeeogidilhlingjj'; // Static ID from manifest.json 'key'
@@ -52,7 +52,7 @@ function install() {
     // 3. Set registry keys
     for (const [browser, regKey] of Object.entries(BROWSER_REGISTRY_KEYS)) {
       try {
-        execSync(`reg add "${regKey}" /ve /t REG_SZ /d "${manifestPath}" /f`, { stdio: 'ignore', windowsHide: true });
+        execFileSync('reg', ['add', regKey, '/ve', '/t', 'REG_SZ', '/d', manifestPath, '/f'], { stdio: 'ignore', windowsHide: true });
       } catch (err) {
         console.warn(`[Registry Setup] Failed to register for ${browser}:`, err.message);
       }

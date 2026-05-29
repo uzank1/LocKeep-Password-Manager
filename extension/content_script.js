@@ -15,6 +15,8 @@ class LocKeepContentScript {
     this.activeDropdown = null;
     this.activePrompt = null;
     this._credentialsFetched = false; // Guard: don't inject until credentials are ready
+    this._cachedLang = 'en';          // Cached language for synchronous use in injectGenerateIcon
+    this._sessionUrl = null;          // Locked origin URL where credential-filling began (multi-step forms)
     // Çok adımlı formlar için verileri biriktireceğimiz alan
     this.authBuffer = {
       username: '',
@@ -22,26 +24,195 @@ class LocKeepContentScript {
     };
   }
 
+  // ─── i18n ─────────────────────────────────────────────────────────────────
+  // BUG-2 FIX: Centralised i18n table used by both showSavePrompt AND injectGenerateIcon.
+  // Added `generateTooltip` key for all supported languages.
+
+  static get i18n() {
+    return {
+      en: {
+        title: "Save to LocKeep?",
+        bodyPrefix: "Would you like to securely save this password for ",
+        bodySuffix: " in your LocKeep vault?",
+        notNow: "Not Now",
+        save: "Save Password",
+        success: "Saved successfully!",
+        error: "LocKeep: Failed to save password. Ensure your vault is unlocked.",
+        generateTooltip: "Generate strong password"
+      },
+      tr: {
+        title: "LocKeep'e Kaydet?",
+        bodyPrefix: "",
+        bodySuffix: " için bu parolayı LocKeep kasanıza güvenle kaydetmek ister misiniz?",
+        notNow: "Şimdi Değil",
+        save: "Parolayı Kaydet",
+        success: "Başarıyla kaydedildi!",
+        error: "LocKeep: Parola kaydedilemedi. Kasanızın kilidinin açık olduğundan emin olun.",
+        generateTooltip: "Güçlü şifre oluştur"
+      },
+      de: {
+        title: "In LocKeep speichern?",
+        bodyPrefix: "Möchten Sie dieses Passwort für ",
+        bodySuffix: " sicher in Ihrem LocKeep-Tresor speichern?",
+        notNow: "Jetzt nicht",
+        save: "Passwort speichern",
+        success: "Erfolgreich gespeichert!",
+        error: "LocKeep: Passwort konnte nicht gespeichert werden. Stellen Sie sicher, dass Ihr Tresor entsperrt ist.",
+        generateTooltip: "Sicheres Passwort generieren"
+      }
+    };
+  }
+
+  /**
+   * Resolves the current language from the background service worker (which
+   * syncs it from the native host via GET_LANGUAGE). Caches the result in
+   * this._cachedLang for synchronous access. Safe to call multiple times.
+   *
+   * ROOT CAUSE of tooltip always showing Turkish: the app language is stored
+   * in the native host and exposed via the background's GET_LANGUAGE handler —
+   * it is NOT written to chrome.storage.local. Reading storage directly always
+   * returned undefined, causing fallback to browser language (tr-TR → 'tr').
+   */
+  async resolveLanguage() {
+    try {
+      // Primary: ask the background worker, which holds the native-host language
+      const bgRes = await this.sendMessageToBackground({ type: 'GET_LANGUAGE' });
+      if (bgRes && bgRes.success && bgRes.language && LocKeepContentScript.i18n[bgRes.language]) {
+        this._cachedLang = bgRes.language;
+        return LocKeepContentScript.i18n[this._cachedLang];
+      }
+    } catch (e) { /* fall through */ }
+
+    try {
+      // Fallback: read directly from extension storage (future-proof)
+      const storage = await chrome.storage.local.get(['language']);
+      if (storage.language && LocKeepContentScript.i18n[storage.language]) {
+        this._cachedLang = storage.language;
+      } else {
+        const browserLang = chrome.i18n.getUILanguage().split('-')[0];
+        if (LocKeepContentScript.i18n[browserLang]) this._cachedLang = browserLang;
+      }
+    } catch (e) { /* keep current cached value */ }
+    return LocKeepContentScript.i18n[this._cachedLang];
+  }
+
+  // ─── Init ─────────────────────────────────────────────────────────────────
+
   async init() {
-    // 1. Fetch credentials for current domain from background
+    // C-03: Clean up stale chrome.storage.local entries (TTL: 2 minutes)
+    try {
+      const stored = await chrome.storage.local.get(['lockeep_last_time']);
+      if (stored.lockeep_last_time && Date.now() - stored.lockeep_last_time > 2 * 60 * 1000) {
+        await chrome.storage.local.remove(['lockeep_last_username', 'lockeep_last_domain', 'lockeep_last_time']);
+      }
+    } catch (e) { }
+
+    // BUG-2 FIX: Resolve and cache language early so injectGenerateIcon can use
+    // this._cachedLang synchronously without any async delay.
+    await this.resolveLanguage();
+
+    // BUG-1 FIX: Check for pending save BEFORE the early exit.
+    try {
+      const pendingRes = await this.sendMessageToBackground({ type: 'GET_PENDING_SAVE' });
+      if (pendingRes && pendingRes.success && pendingRes.data) {
+        const pending = pendingRes.data;
+        const pendingBase = pending.baseDomain || this.getBaseDomain(pending.domain || '');
+        if (pendingBase && pendingBase === this.getBaseDomain(this.domain)) {
+          this.showSavePrompt(pending.username, pending.password, pending.url);
+        }
+      }
+    } catch (e) { }
+
+    // ─── Always register ALL persistent listeners BEFORE the early exit ──────
+    // The early-exit below fires on SPA pages where inputs haven't rendered yet
+    // (e.g. Riot Games step-1 is just an email field — no password). Setting
+    // everything up first means the MutationObserver and input tracker are
+    // active the moment the SPA renders any field, with zero refreshes needed.
+    this.setupSubmissionListeners();
+    this._setupMutationObserver();
+
+    // Click outside to close autofill dropdown
+    document.addEventListener('click', (e) => {
+      if (this.activeDropdown && !this.activeDropdown.contains(e.target)) {
+        this.activeDropdown.remove();
+        this.activeDropdown = null;
+      }
+    });
+
+    // ISSUE-2 FIX: Multi-step form username capture + session URL locking.
+    // Registered HERE (before the early exit) so it works on SPAs that start
+    // without a password field (Riot step-1 = email only; the early exit would
+    // have returned before this listener was ever registered, losing the
+    // username typed in the username step and the initial page URL).
+    document.addEventListener('input', (e) => {
+      const target = e.target;
+      if (target.tagName !== 'INPUT') return;
+
+      const type = (target.type || '').toLowerCase();
+      const name = (target.name || target.id || target.className || '').toLowerCase();
+
+      // KESİN KORUMA: Never capture password field values
+      if (type === 'password' || name.includes('password')) return;
+
+      const isCredentialField =
+        name.includes('user') || name.includes('email') || name.includes('login') ||
+        type === 'text' || type === 'email';
+
+      if (isCredentialField) {
+        // ISSUE-2 FIX: Lock the session URL on the FIRST credential interaction.
+        // On multi-step forms (e.g. Riot Games), the URL at password-submit time
+        // differs from where the user actually filled in their credentials.
+        // Capturing it here (earliest possible moment) preserves the correct URL.
+        if (!this._sessionUrl) {
+          this._sessionUrl = window.location.href;
+        }
+
+        const val = target.value.trim();
+        if (val.length > 0) {
+          chrome.storage.local.set({
+            lockeep_last_username: val,
+            lockeep_last_domain: this.getBaseDomain(this.domain),
+            lockeep_last_time: Date.now()  // C-03: timestamp for TTL enforcement
+          });
+        }
+      }
+    }, true);
+
+    // P-03: Early exit — if no password or email inputs exist yet, skip initial
+    // credential fetch and inject. The MutationObserver registered above will
+    // trigger _fetchCredentials + analyzeAndInject once inputs arrive.
+    if (!document.querySelector('input[type="password"]') && !document.querySelector('input[type="email"]')) {
+      return;
+    }
+
+    // Fetch credentials and run initial analysis
+    await this._fetchCredentials();
+    this._credentialsFetched = true;
+    if (!Array.isArray(this.credentials)) this.credentials = [];
+    this.analyzeAndInject();
+  }
+
+  /**
+   * Fetches credentials for the current domain from the background service worker.
+   * Extracted so both init() and the MutationObserver can call it independently.
+   */
+  async _fetchCredentials() {
     try {
       const baseDomain = this.getBaseDomain(this.domain);
-      console.log(`[DIAGNOSTIC - Content] 1. Requesting credentials for origin: "${window.location.origin}", baseDomain: "${baseDomain}"`); // INJECT
+      console.log(`[DIAGNOSTIC - Content] 1. Requesting credentials for origin: "${window.location.origin}", baseDomain: "${baseDomain}"`);
       const response = await this.sendMessageToBackground({
         type: 'SEARCH_DOMAIN',
         domain: window.location.origin,
         baseDomain: baseDomain
       });
-      console.log(`[DIAGNOSTIC - Content] 2. Raw Response from Background:`, response); // INJECT
+      console.log(`[DIAGNOSTIC - Content] 2. Raw Response from Background:`, response);
       if (response && response.success && response.data && Array.isArray(response.data.entries)) {
         console.log("LocKeep: Data received for UI:", response.data.entries);
-        // Backend farklı format dönebilir (www.x.com vs x.com vs login.x.com)
-        // Base domain üzerinden filtrele
         this.credentials = response.data.entries.filter(entry => {
           const entryDomain = entry.domain || entry.url || '';
           return this.getBaseDomain(entryDomain) === baseDomain;
         });
-        // Eğer backend zaten filtreli döndürdüyse (filtre sıfırladıysa) tüm entries'i kullan
+        // If backend already filtered (filter zeroed out), use all entries
         if (this.credentials.length === 0) {
           this.credentials = response.data.entries;
         }
@@ -51,98 +222,76 @@ class LocKeepContentScript {
     } catch (e) {
       this.credentials = [];
     }
-
-    // Mark credentials as fetched — MutationObserver can now safely inject
-    this._credentialsFetched = true;
-
-    // 2. Check for pending save
-    try {
-      const pendingRes = await this.sendMessageToBackground({ type: 'GET_PENDING_SAVE' });
-      if (pendingRes && pendingRes.success && pendingRes.data) {
-        const pending = pendingRes.data;
-        // Base domain eşleşmesi — subdomain geçişlerinde de çalışır
-        const pendingBase = pending.baseDomain || this.getBaseDomain(pending.domain || '');
-        if (pendingBase && pendingBase === this.getBaseDomain(this.domain)) {
-          this.showSavePrompt(pending.username, pending.password, pending.url);
-        }
-      }
-    } catch (e) { }
-
-    // 3. Analyze page (credentials are ready now)
-    if (!Array.isArray(this.credentials)) {
-      this.credentials = [];
-    }
-    this.analyzeAndInject();
-
-    // 4. Setup form submission listeners for "Save Password"
-    this.setupSubmissionListeners();
-
-    // 5. Watch for dynamic inputs (React/Vue SPAs)
-    // FIX: Only re-analyze if credentials are already fetched.
-    // FIX: Reset the lockeepInjected flag on removed nodes so re-added nodes get re-processed.
-    const observer = new MutationObserver((mutations) => {
-      if (!this._credentialsFetched) return; // Don't inject before credentials are ready
-
-      let shouldReanalyze = false;
-      mutations.forEach(m => {
-        // Track removed nodes — if an injected input was removed, clear its flag
-        m.removedNodes.forEach(node => {
-          if (node.nodeType === Node.ELEMENT_NODE) {
-            const inputs = node.tagName === 'INPUT' ? [node] : Array.from(node.querySelectorAll('input'));
-            inputs.forEach(inp => { delete inp.dataset.lockeepInjected; });
-          }
-        });
-
-        m.addedNodes.forEach(node => {
-          if (node.nodeType === Node.ELEMENT_NODE) {
-            if (
-              (node.tagName === 'INPUT' && (node.type === 'password' || node.type === 'email' || node.type === 'text')) ||
-              node.querySelector('input')
-            ) {
-              shouldReanalyze = true;
-            }
-          }
-        });
-      });
-      if (shouldReanalyze) this.analyzeAndInject();
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    // 5.5 Çok adımlı formlar için anlık (her harfte) kayıt sistemi
-    document.addEventListener('input', (e) => {
-      const target = e.target;
-      if (target.tagName === 'INPUT') {
-        const type = (target.type || '').toLowerCase();
-        const name = (target.name || target.id || target.className || '').toLowerCase();
-
-        // KESİN KORUMA: Adında, sınıfında veya tipinde 'password' kelimesi geçiyorsa ASLA alma!
-        // Kutu 'text' kılığına girse bile isminden yakalarız.
-        if (type === 'password' || name.includes('password')) {
-          return; // Kaydetmeyi anında iptal et
-        }
-
-        // Sadece e-posta, kullanıcı adı veya sıradan metin kutularını hafızaya al
-        if (name.includes('user') || name.includes('email') || name.includes('login') || type === 'text' || type === 'email') {
-          const val = target.value.trim();
-          if (val.length > 0) {
-            chrome.storage.local.set({
-              lockeep_last_username: val,
-              lockeep_last_domain: this.getBaseDomain(this.domain),
-              lockeep_last_time: Date.now()
-            });
-          }
-        }
-      }
-    }, true);
-
-    // 6. Click outside to close dropdown
-    document.addEventListener('click', (e) => {
-      if (this.activeDropdown && !this.activeDropdown.contains(e.target)) {
-        this.activeDropdown.remove();
-        this.activeDropdown = null;
-      }
-    });
   }
+
+  /**
+   * BUG-1 FIX: MutationObserver extracted into its own method so it can be
+   * registered unconditionally — before the early-exit guard in init().
+   *
+   * Key behaviour change: when the observer fires and credentials haven't been
+   * fetched yet (because init() bailed out early), it fetches them now before
+   * calling analyzeAndInject(). This is what eliminates the 3-refresh delay on
+   * SPA pages that render inputs after the content script first runs.
+   */
+  _setupMutationObserver() {
+    const observer = new MutationObserver((mutations) => {
+      let shouldReanalyze = false;
+
+      mutations.forEach(m => {
+        if (m.type === 'childList') {
+          // Track removed nodes — clean up icon/listeners for detached inputs
+          m.removedNodes.forEach(node => {
+            if (node.nodeType === Node.ELEMENT_NODE) {
+              const inputs = node.tagName === 'INPUT' ? [node] : Array.from(node.querySelectorAll('input'));
+              inputs.forEach(inp => {
+                inp.removeAttribute('data-lockeep-injected');
+                delete inp.dataset.lockeepInjected;
+                if (typeof inp._lockeepCleanup === 'function') {
+                  inp._lockeepCleanup();
+                  delete inp._lockeepCleanup;
+                  delete inp._lockeepIcon;
+                }
+              });
+            }
+          });
+
+          m.addedNodes.forEach(node => {
+            if (node.nodeType === Node.ELEMENT_NODE) {
+              if (
+                (node.tagName === 'INPUT' && (node.type === 'password' || node.type === 'email' || node.type === 'text')) ||
+                node.querySelector('input')
+              ) {
+                shouldReanalyze = true;
+              }
+            }
+          });
+        } else if (m.type === 'attributes' && m.attributeName === 'type') {
+          const target = m.target;
+          if (target && target.tagName === 'INPUT' && target.type === 'password') {
+            shouldReanalyze = true;
+          }
+        }
+      });
+
+      if (!shouldReanalyze) return;
+
+      // BUG-1 FIX: If the early-exit in init() fired before credentials were fetched,
+      // fetch them now on the first mutation that shows us an input field.
+      if (!this._credentialsFetched) {
+        this._fetchCredentials().then(() => {
+          this._credentialsFetched = true;
+          if (!Array.isArray(this.credentials)) this.credentials = [];
+          this.analyzeAndInject();
+        });
+      } else {
+        this.analyzeAndInject();
+      }
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['type'] });
+  }
+
+  // ─── Helpers ───────────────────────────────────────────────────────────────
 
   // Hostname'den base domain çıkar: "login.riotgames.com" → "riotgames.com"
   getBaseDomain(hostname) {
@@ -154,7 +303,6 @@ class LocKeepContentScript {
   }
 
   // Subdomain farklılıklarını tolere eden domain eşleşmesi
-  // "login.riotgames.com" ve "account.riotgames.com" → eşleşir
   domainMatches(otherDomain) {
     if (!otherDomain) return false;
     return this.getBaseDomain(this.domain) === this.getBaseDomain(otherDomain);
@@ -168,9 +316,32 @@ class LocKeepContentScript {
     });
   }
 
+  /**
+   * BUG-5 FIX: Returns the tightest ancestor element that wraps ONLY this one
+   * input (excluding hidden inputs). Walks up at most 3 parent levels.
+   *
+   * Why: passwordInput.closest('.field') could resolve to a common form-row
+   * ancestor that contains BOTH the username and password inputs. Using that
+   * element's right edge as the icon's left reference made the icon appear
+   * next to the username field. This helper ensures we only use a wrapper that
+   * is exclusive to the password input itself.
+   */
+  getSingleInputWrapper(input) {
+    let el = input.parentElement;
+    for (let i = 0; i < 3; i++) {
+      if (!el || el === document.body) break;
+      const inputs = el.querySelectorAll('input:not([type="hidden"])');
+      if (inputs.length === 1 && inputs[0] === input) return el;
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  // ─── Core Analysis ─────────────────────────────────────────────────────────
+
   analyzeAndInject() {
     const passwordInputs = Array.from(document.querySelectorAll('input[type="password"]'));
-    console.log(`[DIAGNOSTIC - DOM] 1. Found Password Inputs:`, passwordInputs.length); // INJECT
+    console.log(`[DIAGNOSTIC - DOM] 1. Found Password Inputs:`, passwordInputs.length);
     if (passwordInputs.length === 0) return;
 
     passwordInputs.forEach(passInput => {
@@ -178,15 +349,15 @@ class LocKeepContentScript {
       passInput.dataset.lockeepInjected = 'true';
 
       const form = passInput.closest('form') || document.body;
-      const usernameInput = this.findUsernameInput(form);
+      const usernameInput = this.findUsernameInput(form, passInput);
       const isSignup = this.isSignupForm(form, passInput);
-      console.log(`[DIAGNOSTIC - DOM] 2. Form Analysis:`, { usernameInputFound: !!usernameInput, isSignup, credsCount: this.credentials?.length }); // INJECT
+      console.log(`[DIAGNOSTIC - DOM] 2. Form Analysis:`, { usernameInputFound: !!usernameInput, isSignup, credsCount: this.credentials?.length });
 
       if (isSignup) {
-        // Inject generate icon ONLY into sign-up fields
-        this.injectGenerateIcon(passInput, usernameInput);
+        // BUG-5 FIX: usernameInput is no longer passed — icon positioning is
+        // purely relative to passwordInput via getSingleInputWrapper().
+        this.injectGenerateIcon(passInput);
       } else {
-        // Setup autofill dropdown on login fields
         if (usernameInput && Array.isArray(this.credentials) && this.credentials.length > 0) {
           this.setupAutofillDropdown(usernameInput, passInput);
         }
@@ -209,7 +380,6 @@ class LocKeepContentScript {
       for (const el of elements) {
         if (passwordInput && el === passwordInput) continue;
         if (el.type === 'password') continue;
-
         return el;
       }
     }
@@ -245,16 +415,14 @@ class LocKeepContentScript {
     return false;
   }
 
+  // ─── Autofill Dropdown ─────────────────────────────────────────────────────
+
   setupAutofillDropdown(usernameInput, passwordInput) {
     const showDropdown = (e) => {
-      if (e) {
-        e.stopPropagation();
-      }
+      if (e) e.stopPropagation();
 
       // If dropdown is already active, just return to prevent flicker
-      if (this.activeDropdown) {
-        return;
-      }
+      if (this.activeDropdown) return;
 
       const credentials = Array.isArray(this.credentials) ? this.credentials : [];
       if (credentials.length === 0) return;
@@ -262,10 +430,9 @@ class LocKeepContentScript {
       const rect = usernameInput.getBoundingClientRect();
       const dropdown = document.createElement('div');
       dropdown.className = 'lockeep-dropdown';
-      // position:fixed → koordinatlar viewport'a göre, scroll offset yok
+      // position:fixed → coordinates relative to viewport, no scroll offset needed
       dropdown.style.top = `${rect.bottom + 5}px`;
       dropdown.style.left = `${rect.left}px`;
-      // FIX: Match dropdown width to the input for a polished look
       dropdown.style.minWidth = `${rect.width}px`;
 
       credentials.forEach(cred => {
@@ -299,7 +466,6 @@ class LocKeepContentScript {
             }
           }
 
-          // FIX: Fill username first, then password
           if (usernameInput) {
             usernameInput.value = cred.username;
             usernameInput.dispatchEvent(new Event('input', { bubbles: true }));
@@ -329,32 +495,83 @@ class LocKeepContentScript {
     usernameInput.addEventListener('click', showDropdown);
   }
 
-  injectGenerateIcon(passwordInput, usernameInput) {
+  // ─── Generate Icon ─────────────────────────────────────────────────────────
+
+  /**
+   * BUG-5 FIX: usernameInput parameter removed — icon positioning is now
+   * purely relative to passwordInput using getSingleInputWrapper().
+   */
+  injectGenerateIcon(passwordInput) {
+    // BUG-5 FIX: Tightened confirm-field detection — check aria-label and
+    // placeholder in addition to name/id, covering more SPA patterns.
+    const confirmAttrs = [
+      passwordInput.name,
+      passwordInput.id,
+      passwordInput.placeholder,
+      passwordInput.getAttribute('aria-label')
+    ].filter(Boolean).join(' ');
+    const isConfirm = /(confirm|onayla|re-?enter|repeat|tekrar|again)/i.test(confirmAttrs);
+
+    // BUG-5 FIX: Only count truly visible password inputs (non-zero dimensions).
+    // Some SPAs pre-render hidden password fields (offsetWidth/Height = 0) that
+    // would otherwise shift the indexOf check and suppress the icon on the real field.
     const getVisiblePassInputs = () => {
       return Array.from(document.querySelectorAll('input[type="password"]'))
-        .filter(inp => inp.offsetParent !== null);
+        .filter(inp => inp.offsetParent !== null && inp.offsetWidth > 0 && inp.offsetHeight > 0);
     };
 
     const allPassInputs = getVisiblePassInputs();
-    const isConfirm = /(confirm|onayla|re|repeat|tekrar|again)/i.test(passwordInput.name || passwordInput.id || passwordInput.placeholder || '');
-
     if (isConfirm || allPassInputs.indexOf(passwordInput) > 0) return;
+
+    // BUG-2 FIX: Use the cached language to get the localised tooltip.
+    // this._cachedLang was populated by resolveLanguage() during init().
+    const t = LocKeepContentScript.i18n[this._cachedLang] || LocKeepContentScript.i18n.en;
 
     const icon = document.createElement('div');
     icon.className = 'lockeep-generate-icon';
-    icon.title = 'Güçlü şifre oluştur';
+    icon.title = t.generateTooltip;  // ← localised, no longer hardcoded Turkish
     icon.innerHTML = `
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
       </svg>
     `;
 
+    // BUG-3 FIX: Only force position: absolute inline — let the CSS class
+    // (.lockeep-generate-icon { z-index: 9999 }) control stacking order.
+    // The previous `z-index: 999999 !important` inline style caused the icon
+    // to render on top of native page dropdowns (which use ~10000). At 9999
+    // the icon floats above normal content but yields to page dropdowns,
+    // while the LocKeep autofill dropdown (z-index: 2147483647) still wins.
+    icon.style.setProperty('position', 'absolute', 'important');
+
+    // Clean up any stale ghost icon / listeners from a previous injection attempt
+    if (typeof passwordInput._lockeepCleanup === 'function') {
+      passwordInput._lockeepCleanup();
+    }
+
+    // ─── BUG-4 FIX: rAF-based position tracking ────────────────────────────
+    // requestAnimationFrame gives frame-accurate updates during CSS transitions
+    // and JS-driven animations — something a 200ms setInterval cannot do.
+    // The loop runs for RAF_MAX_FRAMES frames (~1.5 s) then stops to save CPU.
+    // It is re-triggered on focus to handle "animate-on-focus" inputs (e.g. Riot).
+    // Position is only written to the DOM when it actually changes, reducing
+    // unnecessary layout recalculations.
+    let _rafHandle = null;
+    let _lastTop = null;
+    let _lastLeft = null;
+    const RAF_MAX_FRAMES = 90; // ~1.5 s at 60 fps
+
+    // BUG-5 FIX: Use getSingleInputWrapper instead of .closest('.field') to
+    // ensure we only use a wrapper that is exclusive to this password input.
+    const _getWidthRef = () => {
+      const wrapper = this.getSingleInputWrapper(passwordInput);
+      return wrapper ? wrapper.getBoundingClientRect() : passwordInput.getBoundingClientRect();
+    };
+
     const positionIcon = () => {
-      // Sadece input'un kendisinin sınırlarını al
       const inputRect = passwordInput.getBoundingClientRect();
 
-      // Kutu görünmüyorsa ikonu gizle
-      if (inputRect.width === 0 || inputRect.top === 0) {
+      if (inputRect.width <= 0 || inputRect.height <= 0) {
         icon.style.display = 'none';
         return;
       }
@@ -363,54 +580,68 @@ class LocKeepContentScript {
 
       const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
       const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+      const widthRect = _getWidthRef();
 
-      // Akıllı Yatay Hizalama: Riot Games gibi küçülen kutular için '.field' sınıfını ara.
-      // Eğer yoksa (SignUp.com gibi), normal input'un genişliğini kullan.
-      const wrapper = passwordInput.closest('.field');
-      const widthRect = wrapper ? wrapper.getBoundingClientRect() : inputRect;
+      const newTop = scrollTop + inputRect.top + (inputRect.height / 2);
+      const newLeft = scrollLeft + widthRect.left + widthRect.width + 4;
 
-      // DİKEY (Top): Kesinlikle input'un kendi yüksekliğinin tam ortası
-      icon.style.top = (scrollTop + inputRect.top + (inputRect.height / 2)) + 'px';
-
-      // YATAY (Left): Riot'ta dış çerçeve, diğerlerinde input'un sağ kenarı
-      icon.style.left = (scrollLeft + widthRect.left + widthRect.width + 4) + 'px';
+      // Only write to DOM when position actually changed (avoids layout thrash)
+      if (newTop !== _lastTop || newLeft !== _lastLeft) {
+        icon.style.top = newTop + 'px';
+        icon.style.left = newLeft + 'px';
+        _lastTop = newTop;
+        _lastLeft = newLeft;
+      }
     };
 
-    // Varsa eski hayalet ikonu temizle
-    if (passwordInput._lockeepIcon) {
-      passwordInput._lockeepIcon.remove();
-    }
-    passwordInput._lockeepIcon = icon;
+    const startRafTracking = () => {
+      if (_rafHandle !== null) cancelAnimationFrame(_rafHandle);
+      let frames = 0;
+      const track = () => {
+        positionIcon();
+        frames++;
+        if (frames < RAF_MAX_FRAMES) {
+          _rafHandle = requestAnimationFrame(track);
+        } else {
+          _rafHandle = null;
+        }
+      };
+      _rafHandle = requestAnimationFrame(track);
+    };
 
-    // İkonu body'ye ekle
+    // Append icon to body and start rAF tracking immediately
     document.body.appendChild(icon);
-    positionIcon();
+    startRafTracking();
 
-    // 1. GMAIL ÇÖZÜMÜ (Layout Shift Radar): Animasyon bitene kadar (ilk 1.5 saniye) takip et
-    let ticks = 0;
-    const settleInterval = setInterval(() => {
-      positionIcon();
-      ticks++;
-      // 15 tur (1.5 saniye) sonra takibi bırakır, performansı yormaz
-      if (ticks > 15) clearInterval(settleInterval);
-    }, 100);
+    // Steady-state position updaters (after the rAF loop ends)
+    const resizeObserver = new ResizeObserver(() => positionIcon());
+    resizeObserver.observe(passwordInput);
+    const wrapperEl = this.getSingleInputWrapper(passwordInput) || passwordInput.parentElement;
+    if (wrapperEl) resizeObserver.observe(wrapperEl);
 
-    // 2. Sadece şifre kutusunu değil, dış çerçeveyi de takip et (SignUp ve Gmail için)
-    const observer = new ResizeObserver(() => positionIcon());
-    observer.observe(passwordInput);
-    const wrapper = passwordInput.closest('.field') || passwordInput.parentElement;
-    if (wrapper) {
-      observer.observe(wrapper);
-    }
-
-    // 3. Klasik Takipçiler
     window.addEventListener('resize', positionIcon);
     window.addEventListener('scroll', positionIcon, true);
-    passwordInput.addEventListener('focus', () => {
-      // Riot gibi odaklanınca animasyon yapan siteler için ufak bir gecikme
-      setTimeout(positionIcon, 150);
+
+    const handleFocus = () => {
       positionIcon();
-    });
+      startRafTracking(); // Re-trigger rAF loop to catch animate-on-focus transitions
+    };
+    passwordInput.addEventListener('focus', handleFocus);
+
+    const cleanup = () => {
+      if (_rafHandle !== null) {
+        cancelAnimationFrame(_rafHandle);
+        _rafHandle = null;
+      }
+      window.removeEventListener('resize', positionIcon);
+      window.removeEventListener('scroll', positionIcon, true);
+      passwordInput.removeEventListener('focus', handleFocus);
+      resizeObserver.disconnect();
+      icon.remove();
+    };
+
+    passwordInput._lockeepCleanup = cleanup;
+    passwordInput._lockeepIcon = icon;
 
     // Şifre oluşturma tıklama olayı
     icon.addEventListener('click', async (e) => {
@@ -419,8 +650,7 @@ class LocKeepContentScript {
       const res = await this.sendMessageToBackground({ type: 'GENERATE_PASSWORD' });
       if (res && res.success && res.data && res.data.password) {
         const generatedPassword = res.data.password;
-        const currentPassInputs = getVisiblePassInputs();
-        currentPassInputs.forEach(inp => {
+        getVisiblePassInputs().forEach(inp => {
           inp.value = generatedPassword;
           inp.dispatchEvent(new Event('input', { bubbles: true }));
           inp.dispatchEvent(new Event('change', { bubbles: true }));
@@ -429,26 +659,35 @@ class LocKeepContentScript {
     });
   }
 
+  // ─── Form Submission ───────────────────────────────────────────────────────
+
   setupSubmissionListeners() {
-    const handleSubmit = async (formElement) => {
+    let lastSubmitTime = 0;
+    let lastSubmitUser = '';
+    let lastSubmitPass = '';
+
+    // BUG-3 FIX: handleSubmit now accepts optional pre-captured values.
+    const handleSubmit = async (formElement, capturedUsername, capturedPassword) => {
       if (!formElement) return;
-      const passwordInput = formElement.querySelector('input[type="password"]');
-      if (!passwordInput || !passwordInput.value) return;
 
-      const usernameInput = this.findUsernameInput(formElement, passwordInput);
-      let username = usernameInput ? usernameInput.value.trim() : '';
-      const password = passwordInput.value;
+      let password = capturedPassword;
+      let username = capturedUsername;
 
-      // Çifte Güvenlik: Şifre yanlışlıkla kullanıcı adı olarak alındıysa temizle
-      if (username === password) {
-        username = "";
+      // If values weren't pre-captured (native submit), read from DOM
+      if (password === undefined) {
+        const passwordInput = formElement.querySelector('input[type="password"]');
+        if (!passwordInput || !passwordInput.value) return;
+        password = passwordInput.value;
+        const usernameInput = this.findUsernameInput(formElement, passwordInput);
+        username = usernameInput ? usernameInput.value.trim() : '';
       }
 
-      // ANLIK HAFIZA OKUYUCU: Sayfada yoksa Brave'in anlık hafızasından çek
+      // Safety: if password was accidentally captured as username, discard
+      if (username === password) username = '';
+
+      // ANLIK HAFIZA OKUYUCU: Sayfada yoksa anlık hafızadan çek
       if (!username) {
         const res = await chrome.storage.local.get(['lockeep_last_username', 'lockeep_last_domain', 'lockeep_last_time']);
-
-        // Eğer kayıtlı bir isim varsa, domain uyuyorsa ve 15 dakikadan eskiyse
         if (
           res.lockeep_last_username &&
           this.getBaseDomain(res.lockeep_last_domain) === this.getBaseDomain(this.domain) &&
@@ -458,22 +697,38 @@ class LocKeepContentScript {
         }
       }
 
+      // Deduplicate rapid submissions (e.g., click + submit event within 1 second)
+      const now = Date.now();
+      if (username === lastSubmitUser && password === lastSubmitPass && (now - lastSubmitTime < 1000)) return;
+      lastSubmitUser = username;
+      lastSubmitPass = password;
+      lastSubmitTime = now;
+
       const isKnown = Array.isArray(this.credentials) && this.credentials.some(c => c.username === username);
 
       if (!isKnown && password.length >= 4) {
-        const loginUrl = window.location.origin;
-        const loginDomain = this.domain;
+        // ISSUE-2 FIX: Use the session URL locked at first credential interaction
+        // rather than window.location.origin at submission time, which may differ
+        // on multi-step / redirect flows (e.g. authenticate.riotgames.com →
+        // accounts.riotgames.com). Fall back to current origin if never locked.
+        let loginOrigin = window.location.origin;
+        if (this._sessionUrl) {
+          try { loginOrigin = new URL(this._sessionUrl).origin; } catch (e) { }
+        }
+        const loginDomain = (() => {
+          try { return new URL(loginOrigin).hostname; } catch { return this.domain; }
+        })();
         this.sendMessageToBackground({
           type: 'SET_PENDING_SAVE',
           entry: {
             domain: loginDomain,
             baseDomain: this.getBaseDomain(loginDomain),
-            url: loginUrl,
+            url: loginOrigin,
             username,
             password
           }
         });
-        this.showSavePrompt(username, password, loginUrl);
+        this.showSavePrompt(username, password, loginOrigin);
       }
     };
 
@@ -483,6 +738,7 @@ class LocKeepContentScript {
     });
 
     // 2. JS-driven form submissions (listening to button clicks)
+    // BUG-3 FIX: Capture input values SYNCHRONOUSLY at click time.
     document.addEventListener('click', (e) => {
       const btn = e.target.closest('button, input[type="submit"], input[type="button"]');
       if (!btn) return;
@@ -494,56 +750,22 @@ class LocKeepContentScript {
 
       if (isSubmitType || isLoginOrRegister) {
         const form = btn.closest('form') || document.body;
-        handleSubmit(form);
+        const passwordInput = form.querySelector('input[type="password"]');
+        if (!passwordInput || !passwordInput.value) return;
+        const capturedPassword = passwordInput.value;
+        const usernameInput = this.findUsernameInput(form, passwordInput);
+        const capturedUsername = usernameInput ? usernameInput.value.trim() : '';
+        handleSubmit(form, capturedUsername, capturedPassword);
       }
     });
   }
 
+  // ─── Save Prompt ───────────────────────────────────────────────────────────
+
   async showSavePrompt(username, password, loginUrl) {
-    // Localization Dictionary
-    const i18n = {
-      en: {
-        title: "Save to LocKeep?",
-        body: (domain) => `Would you like to securely save this password for <strong>${domain}</strong> in your LocKeep vault?`,
-        notNow: "Not Now",
-        save: "Save Password",
-        success: "Saved successfully!",
-        error: "LocKeep: Failed to save password. Ensure your vault is unlocked."
-      },
-      tr: {
-        title: "LocKeep'e Kaydet?",
-        body: (domain) => `<strong>${domain}</strong> için bu parolayı LocKeep kasanıza güvenle kaydetmek ister misiniz?`,
-        notNow: "Şimdi Değil",
-        save: "Parolayı Kaydet",
-        success: "Başarıyla kaydedildi!",
-        error: "LocKeep: Parola kaydedilemedi. Kasanızın kilidinin açık olduğundan emin olun."
-      },
-      de: {
-        title: "In LocKeep speichern?",
-        body: (domain) => `Möchten Sie dieses Passwort für <strong>${domain}</strong> sicher in Ihrem LocKeep-Tresor speichern?`,
-        notNow: "Jetzt nicht",
-        save: "Passwort speichern",
-        success: "Erfolgreich gespeichert!",
-        error: "LocKeep: Passwort konnte nicht gespeichert werden. Stellen Sie sicher, dass Ihr Tresor entsperrt ist."
-      }
-    };
+    // BUG-2 FIX: Use resolveLanguage() — reads from the centralised i18n table
+    const t = await this.resolveLanguage();
 
-    // Get language preference
-    let lang = 'en';
-    try {
-      const storage = await chrome.storage.local.get(['language']);
-      if (storage.language && i18n[storage.language]) {
-        lang = storage.language;
-      } else {
-        // Fallback to browser language
-        const browserLang = chrome.i18n.getUILanguage().split('-')[0];
-        if (i18n[browserLang]) lang = browserLang;
-      }
-    } catch (e) { }
-
-    const t = i18n[lang];
-
-    // loginUrl verilmemişse şu anki sayfa URL'sini kullan, her zaman sadece origin'i al
     let saveUrl = loginUrl || window.location.origin;
     try { saveUrl = new URL(saveUrl).origin; } catch (e) { }
     const saveDomain = (() => {
@@ -552,40 +774,70 @@ class LocKeepContentScript {
 
     if (this.activePrompt) this.activePrompt.remove();
 
+    // M-05: Safe DOM construction instead of innerHTML to prevent XSS
     const prompt = document.createElement('div');
     prompt.className = 'lockeep-save-prompt';
 
-    prompt.innerHTML = `
-      <div class="lockeep-save-prompt-header">
-        <img src="${this.iconUrl}" class="lockeep-save-prompt-logo" alt="LocKeep" />
-        <h3 class="lockeep-save-prompt-title">${t.title}</h3>
-      </div>
-      <div class="lockeep-save-prompt-body">
-        ${t.body(saveDomain)}
-      </div>
-      <div class="lockeep-save-prompt-actions">
-        <button type="button" class="lockeep-btn lockeep-btn-secondary" id="lk-prompt-cancel">${t.notNow}</button>
-        <button type="button" class="lockeep-btn lockeep-btn-primary" id="lk-prompt-save">${t.save}</button>
-      </div>
-    `;
+    // Header
+    const header = document.createElement('div');
+    header.className = 'lockeep-save-prompt-header';
+    const logo = document.createElement('img');
+    logo.src = this.iconUrl;
+    logo.className = 'lockeep-save-prompt-logo';
+    logo.alt = 'LocKeep';
+    const titleEl = document.createElement('h3');
+    titleEl.className = 'lockeep-save-prompt-title';
+    titleEl.textContent = t.title;
+    header.appendChild(logo);
+    header.appendChild(titleEl);
+
+    // Body
+    const body = document.createElement('div');
+    body.className = 'lockeep-save-prompt-body';
+    body.appendChild(document.createTextNode(t.bodyPrefix));
+    const domainStrong = document.createElement('strong');
+    domainStrong.textContent = saveDomain;
+    body.appendChild(domainStrong);
+    body.appendChild(document.createTextNode(t.bodySuffix));
+
+    // Actions
+    const actions = document.createElement('div');
+    actions.className = 'lockeep-save-prompt-actions';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'lockeep-btn lockeep-btn-secondary';
+    cancelBtn.textContent = t.notNow;
+    const saveBtn = document.createElement('button');
+    saveBtn.type = 'button';
+    saveBtn.className = 'lockeep-btn lockeep-btn-primary';
+    saveBtn.textContent = t.save;
+    actions.appendChild(cancelBtn);
+    actions.appendChild(saveBtn);
+
+    prompt.appendChild(header);
+    prompt.appendChild(body);
+    prompt.appendChild(actions);
 
     document.body.appendChild(prompt);
     this.activePrompt = prompt;
 
-    document.getElementById('lk-prompt-cancel').addEventListener('click', (e) => {
+    cancelBtn.addEventListener('click', (e) => {
       e.preventDefault();
       this.sendMessageToBackground({ type: 'CLEAR_PENDING_SAVE' });
       prompt.remove();
       this.activePrompt = null;
     });
 
-    document.getElementById('lk-prompt-save').addEventListener('click', async (e) => {
+    saveBtn.addEventListener('click', async (e) => {
       e.preventDefault();
 
+      // ISSUE-2 FIX: Use saveUrl (derived from loginUrl passed into this method)
+      // NOT window.location.origin. On redirect flows the current URL has already
+      // changed to the post-auth domain by the time the user clicks Save.
       const newEntry = {
         title: document.title || saveDomain,
-        url: window.location.origin,           // Login sayfasının URL'si — yeni sayfa değil
-        domain: window.location.origin,
+        url: saveUrl,
+        domain: saveUrl,
         username: username,
         password: password,
         category: 'Login',
@@ -598,12 +850,20 @@ class LocKeepContentScript {
       });
 
       if (res && res.success) {
-        prompt.innerHTML = `
-          <div class="lockeep-save-prompt-header">
-            <img src="${this.iconUrl}" class="lockeep-save-prompt-logo" alt="LocKeep" />
-            <h3 class="lockeep-save-prompt-title">${t.success}</h3>
-          </div>
-        `;
+        // M-05: Safe DOM construction for success message
+        prompt.innerHTML = '';
+        const successHeader = document.createElement('div');
+        successHeader.className = 'lockeep-save-prompt-header';
+        const successLogo = document.createElement('img');
+        successLogo.src = this.iconUrl;
+        successLogo.className = 'lockeep-save-prompt-logo';
+        successLogo.alt = 'LocKeep';
+        const successTitle = document.createElement('h3');
+        successTitle.className = 'lockeep-save-prompt-title';
+        successTitle.textContent = t.success;
+        successHeader.appendChild(successLogo);
+        successHeader.appendChild(successTitle);
+        prompt.appendChild(successHeader);
         setTimeout(() => {
           if (this.activePrompt === prompt) {
             prompt.remove();

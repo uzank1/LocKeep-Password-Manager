@@ -348,6 +348,18 @@ function exportToFile(entries, targetFormat, outputPath) {
     const dir = path.dirname(outputPath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(outputPath, content, 'utf-8');
+
+    // H-04: Restrict file permissions — exported passwords are plaintext
+    try {
+      if (process.platform === 'win32') {
+        const { execFileSync } = require('child_process');
+        // Remove inherited permissions, grant full control only to current user
+        execFileSync('icacls', [outputPath, '/inheritance:r', '/grant:r', `${process.env.USERNAME}:F`], { stdio: 'ignore', windowsHide: true });
+      } else {
+        fs.chmodSync(outputPath, 0o600); // Owner read/write only
+      }
+    } catch { /* Best-effort — don't fail the export if permissions fail */ }
+
     return { success: true, message: `Exported ${entries.length} entries.`, path: outputPath };
   } catch (err) {
     return { success: false, message: 'Failed to write file: ' + err.message };

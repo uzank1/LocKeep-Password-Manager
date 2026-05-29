@@ -19,6 +19,8 @@ let _pendingRequests = new Map();
 let _requestId = 0;
 let _cachedLanguage = 'en';
 let _pendingSave = null;
+/** @type {ReturnType<typeof setTimeout>|null} C-03: TTL timer for _pendingSave auto-clear */
+let _pendingSaveTimer = null;
 
 // E2EE State
 let _sharedSecretKey = null;
@@ -80,17 +82,32 @@ async function performHandshake(port) {
             []
           );
 
-          // Derive shared secret (raw 256 bits) and import as AES-GCM key
+          // H-02: Derive AES key via HKDF-SHA256 (matches host.js crypto.hkdfSync)
           const sharedSecretBits = await crypto.subtle.deriveBits(
             { name: 'ECDH', public: hostKey },
             keyPair.privateKey,
             256
           );
 
-          _sharedSecretKey = await crypto.subtle.importKey(
+          // Import the raw ECDH bits as an HKDF base key
+          const hkdfBaseKey = await crypto.subtle.importKey(
             'raw',
             sharedSecretBits,
-            { name: 'AES-GCM' },
+            'HKDF',
+            false,
+            ['deriveKey']
+          );
+
+          // Derive the final AES-GCM key via HKDF with matching parameters
+          _sharedSecretKey = await crypto.subtle.deriveKey(
+            {
+              name: 'HKDF',
+              hash: 'SHA-256',
+              salt: new Uint8Array(0),  // empty salt (matches '' in Node.js hkdfSync)
+              info: new TextEncoder().encode('lockeep-e2ee-v1')
+            },
+            hkdfBaseKey,
+            { name: 'AES-GCM', length: 256 },
             false,
             ['encrypt', 'decrypt']
           );
@@ -275,6 +292,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           response = await sendNativeMessage('SAVE_CREDENTIAL', message.entry);
           if (response && response.success) {
             _pendingSave = null;
+            if (_pendingSaveTimer) { clearTimeout(_pendingSaveTimer); _pendingSaveTimer = null; }
           }
           break;
         case 'SET_PENDING_SAVE':
@@ -282,6 +300,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           if (_pendingSave && _pendingSave.url) {
             try { _pendingSave.url = new URL(_pendingSave.url).origin; } catch (e) { }
           }
+          // C-03: Auto-clear _pendingSave after 120 seconds to limit credential exposure
+          if (_pendingSaveTimer) clearTimeout(_pendingSaveTimer);
+          _pendingSaveTimer = setTimeout(() => { _pendingSave = null; _pendingSaveTimer = null; }, 120 * 1000);
           response = { success: true };
           break;
         case 'GET_PENDING_SAVE':
@@ -289,6 +310,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
         case 'CLEAR_PENDING_SAVE':
           _pendingSave = null;
+          if (_pendingSaveTimer) { clearTimeout(_pendingSaveTimer); _pendingSaveTimer = null; }
           response = { success: true };
           break;
         case 'GENERATE_PASSWORD':
