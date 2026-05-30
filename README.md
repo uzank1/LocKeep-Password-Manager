@@ -35,3 +35,11 @@ LocKeep is built with support for 3 languages and instantly adapts to your prefe
 🇩🇪 German (Deutsch)
 
 (More languages can be added in the future upon request!)
+
+## License & Terms of Use
+
+This project is protected under a strict **Proprietary (All Rights Reserved)** license. 
+
+- 🔓 **You are free to:** Download, run, inspect, and use LocKeep strictly for personal, non-commercial purposes.
+- ⛔ **You are NOT allowed to:** Copy, modify, redistribute, or use parts of this source code to publish it under your own name, use it in closed-source software, or commercialize/sell it in any form.
+- 🐛 **Bug Reports:** If you find any bugs or UI bugs, please open an issue in the **Issues** tab. All code modifications will be executed solely by the original author.
