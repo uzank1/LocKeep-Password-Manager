@@ -521,6 +521,19 @@ async function deleteEntry(id) {
  *
  * P-05: Uses the in-memory domain index for O(1) lookup instead of
  * scanning all entries on every search.
+ *
+ * L-2: The linear fallback now uses suffix-anchored matching (_matchHosts)
+ * instead of bidirectional .includes(). This prevents a stored credential
+ * for 'app.com' from being incorrectly offered on 'myapp.com', while
+ * still correctly matching subdomains like 'login.app.com' → 'app.com'.
+ */
+
+/**
+ * Extracts the hostname portion from a cleaned URL/domain string.
+ * Strips any path segments and port numbers.
+ * Example: 'github.com/login' → 'github.com', 'localhost:3000' → 'localhost'
+ * @param {string} cleanStr - A URL/domain previously processed by _cleanDomain()
+ * @returns {string} The bare hostname
  */
 function extractHost(cleanStr) {
   if (!cleanStr) return '';
@@ -528,6 +541,20 @@ function extractHost(cleanStr) {
   return hostPart.split(':')[0];
 }
 
+/**
+ * Determines whether two hostnames are the same domain or have a
+ * subdomain/parent relationship. Uses strict dot-boundary suffix matching.
+ *
+ * Examples:
+ *   _matchHosts('login.github.com', 'github.com')  → true  (subdomain match)
+ *   _matchHosts('github.com', 'github.com')        → true  (exact match)
+ *   _matchHosts('myapp.com', 'app.com')             → false (no dot boundary)
+ *   _matchHosts('evil-github.com', 'github.com')    → false (no dot boundary)
+ *
+ * @param {string} h1 - First hostname
+ * @param {string} h2 - Second hostname
+ * @returns {boolean} Whether the hosts match at a domain boundary
+ */
 function _matchHosts(h1, h2) {
   if (!h1 || !h2) return false;
   return h1 === h2 || h1.endsWith('.' + h2) || h2.endsWith('.' + h1);
@@ -595,7 +622,7 @@ async function addBulkEntries(entries) {
   const now = new Date().toISOString();
   let imported = 0;
 
-  // URL'den domain çıkarmak için ufak yardımcı fonksiyon (Karşılaştırma için)
+  // Helper: extract the bare hostname from a URL for deduplication comparison
   const getDomain = (url) => {
     if (!url) return '';
     try {
@@ -606,7 +633,8 @@ async function addBulkEntries(entries) {
   };
 
   for (const entryData of entries) {
-    // ÇİFTE KAYIT KONTROLÜ (DEDUPLICATION)
+    // Deduplication check: skip if an entry with the same username, password,
+    // and domain already exists in the vault
     const isDuplicate = _entries.some(existing =>
       existing.username === entryData.username &&
       existing.password === entryData.password &&

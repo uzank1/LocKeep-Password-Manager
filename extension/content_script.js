@@ -1,34 +1,93 @@
 /**
  * ============================================================================
- * LOCKEEP EXTENSION — Unified Content Script
+ * LOCKEEP EXTENSION — Content Script (DOM Injection Layer)
  * ============================================================================
-*/
+ * Architecture: Browser Extension / Frontend Content Script
+ *
+ * This script is injected into every web page matching the extension's
+ * content_scripts manifest entry. It runs in an isolated world within the
+ * page's DOM and communicates with the background service worker
+ * (background.js) via chrome.runtime.sendMessage().
+ *
+ * Responsibilities:
+ *   1. Detect login and registration forms by scanning for password/email inputs.
+ *   2. For LOGIN forms: show an autofill dropdown populated with vault credentials.
+ *   3. For SIGNUP forms: inject a "Generate Strong Password" icon next to
+ *      the password field, which calls the native host's password generator.
+ *   4. On form submission: offer to save new credentials via a "Save to LocKeep?"
+ *      overlay prompt, then forward the entry to the Electron main process.
+ *   5. Track usernames across multi-step SPA flows (M-1): send captured
+ *      usernames to background.js's in-memory store (never to disk).
+ *   6. Provide fully localised UI (en/tr/de) for all injected elements.
+ *
+ * Data Flow:
+ *   Page DOM  ───(this script)───►  background.js  ───►  host.js  ───►  Electron Main
+ *
+ * Key Design Decisions:
+ *   - MutationObserver is always registered before any early-exit guard,
+ *     ensuring SPA-rendered inputs are caught without requiring page refreshes.
+ *   - Icon positioning uses requestAnimationFrame-based tracking for smooth
+ *     CSS-transition-aware placement (replaces the old 200ms setInterval).
+ *   - All DOM construction uses createElement() (never innerHTML) to prevent XSS.
+ * ============================================================================
+ */
 
 'use strict';
 
+// L-4: Master toggle for diagnostic console.log statements.
+// Must remain `false` in production to prevent leaking credential counts,
+// domain queries, and response data to the browser's DevTools console.
 const DEBUG = false;
 
 class LocKeepContentScript {
   constructor() {
+    /** Current page hostname (e.g. 'login.github.com'). */
     this.domain = window.location.hostname;
+    
+    /** @type {Array<{id:string, username:string, title:string, url:string}>} Vault entries matching this domain. */
     this.credentials = [];
+    
+    /** Absolute URL to the extension's 128px icon (used in save prompt header). */
     this.iconUrl = chrome.runtime.getURL('icons/icon128.png');
+    
+    /** Absolute URL to the extension's 48px icon (used as small logo references). */
     this.smallIconUrl = chrome.runtime.getURL('icons/icon48.png');
+    
+    /** @type {HTMLElement|null} Currently visible autofill dropdown element. */
     this.activeDropdown = null;
+    
+    /** @type {HTMLElement|null} Currently visible "Save Password?" prompt element. */
     this.activePrompt = null;
-    this._credentialsFetched = false; // Guard: don't inject until credentials are ready
-    this._cachedLang = 'en';          // Cached language for synchronous use in injectGenerateIcon
-    this._sessionUrl = null;          // Locked origin URL where credential-filling began (multi-step forms)
-    // Çok adımlı formlar için verileri biriktireceğimiz alan
+    
+    /** Guard flag: prevents injection before credentials have been fetched from the vault. */
+    this._credentialsFetched = false; 
+    
+    /** Cached language code for synchronous access in injectGenerateIcon (set by resolveLanguage()). */
+    this._cachedLang = 'en';          
+    
+    /**
+     * Locked origin URL captured at the first credential interaction.
+     * On multi-step SPA flows (e.g. Riot Games), the URL at password-submit time
+     * differs from where the user initially typed their email/username.
+     * This field preserves the correct URL for the "Save to LocKeep?" prompt.
+     * @type {string|null}
+     */
+    this._sessionUrl = null;          
+    
+    /**
+     * Accumulator buffer for multi-step form credential fields.
+     * Used when username and password are collected across separate SPA steps.
+     */
     this.authBuffer = {
       username: '',
       password: ''
     };
   }
 
-  // ─── i18n ─────────────────────────────────────────────────────────────────
-  // BUG-2 FIX: Centralised i18n table used by both showSavePrompt AND injectGenerateIcon.
-  // Added `generateTooltip` key for all supported languages.
+  // ─── i18n (Internationalisation) ─────────────────────────────────────────
+  // Centralised translation dictionary shared by showSavePrompt() and
+  // injectGenerateIcon(). Supports English, Turkish, and German.
+  // The active language is resolved from the native host via background.js.
 
   static get i18n() {
     return {
@@ -150,7 +209,8 @@ class LocKeepContentScript {
       const type = (target.type || '').toLowerCase();
       const name = (target.name || target.id || target.className || '').toLowerCase();
 
-      // KESİN KORUMA: Never capture password field values
+      // Safety guard: never capture values from password-type fields in the
+      // username tracker — only text, email, and username-like inputs.
       if (type === 'password' || name.includes('password')) return;
 
       const isCredentialField =
@@ -292,7 +352,9 @@ class LocKeepContentScript {
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
 
-  // Hostname'den base domain çıkar: "login.riotgames.com" → "riotgames.com"
+  // Extracts the base domain from a full hostname.
+  // Example: "login.riotgames.com" → "riotgames.com"
+  // Used to compare domains across subdomains for credential matching.
   getBaseDomain(hostname) {
     if (!hostname) return '';
     const h = hostname.replace(/^https?:\/\//, '').replace(/\/$/, '').toLowerCase().split('?')[0];
@@ -301,12 +363,19 @@ class LocKeepContentScript {
     return h;
   }
 
-  // Subdomain farklılıklarını tolere eden domain eşleşmesi
+  // Subdomain-tolerant domain comparison.
+  // Returns true if the current page's base domain matches the given domain.
   domainMatches(otherDomain) {
     if (!otherDomain) return false;
     return this.getBaseDomain(this.domain) === this.getBaseDomain(otherDomain);
   }
 
+  /**
+   * Sends a message to the background service worker and returns the response.
+   * Wraps chrome.runtime.sendMessage in a Promise for async/await usage.
+   * @param {Object} message - The message object (must include a `type` field)
+   * @returns {Promise<Object|null>} The response from the background script
+   */
   sendMessageToBackground(message) {
     return new Promise((resolve) => {
       chrome.runtime.sendMessage(message, (response) => {
@@ -364,7 +433,8 @@ class LocKeepContentScript {
     });
   }
 
-  // FIX: Extracted to a shared helper to avoid inconsistent selector usage
+  // Shared helper: locates the username input field nearest to a password input.
+  // Tries selectors in priority order: email, identifier, user*, email*, login*, text.
   findUsernameInput(form, passwordInput = null) {
     const selectors = [
       'input[type="email"]:not([hidden])',
@@ -385,6 +455,14 @@ class LocKeepContentScript {
     return null;
   }
 
+  /**
+   * Heuristically determines whether a form is a signup/registration form.
+   * Checks: multiple password inputs, form action/id/name keywords, and
+   * individual input attributes. Defaults to false (login) when ambiguous.
+   * @param {HTMLElement} form - The form element (or document.body if none)
+   * @param {HTMLInputElement} passwordInput - The password field being analysed
+   * @returns {boolean}
+   */
   isSignupForm(form, passwordInput) {
     if (!form || form === document.body) {
       if (passwordInput) {
@@ -642,7 +720,8 @@ class LocKeepContentScript {
     passwordInput._lockeepCleanup = cleanup;
     passwordInput._lockeepIcon = icon;
 
-    // Şifre oluşturma tıklama olayı
+    // Password generation click handler: requests a strong password from the
+    // native host and fills all visible password inputs on the page with it.
     icon.addEventListener('click', async (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -684,7 +763,10 @@ class LocKeepContentScript {
       // Safety: if password was accidentally captured as username, discard
       if (username === password) username = '';
 
-      // ANLIK HAFIZA OKUYUCU: Sayfada yoksa anlık hafızadan çek
+      // In-memory username fallback: if the page's DOM doesn't contain a
+      // username input (common in multi-step SPA flows), retrieve the last
+      // captured username from background.js's in-memory store (M-1).
+      // This value is validated against the current domain and a 15-minute TTL.
       if (!username) {
         const res = await this.sendMessageToBackground({ type: 'GET_LAST_USERNAME' });
         if (
