@@ -196,12 +196,13 @@ async function processCommand(command, data) {
       try {
         const appRes = await sendToApp({ action: 'searchDomain', domain: data.domain });
 
-        // KESİN ÇÖZÜM: Masaüstünden bir hata (örneğin "Vault is locked") geldiyse bunu ASLA YUTMA, direkt ilet!
+        // Forward error responses from the desktop app (e.g., "Vault is locked")
+        // directly to the extension — never swallow errors silently.
         if (appRes && appRes.success === false) {
           return appRes;
         }
 
-        // Eğer başarılıysa şifreleri gönder
+        // Success: forward credential entries to the extension
         if (appRes && appRes.success && Array.isArray(appRes.data)) {
           return { success: true, data: { entries: appRes.data } };
         } else if (appRes && appRes.success && appRes.data && Array.isArray(appRes.data.entries)) {
@@ -209,7 +210,7 @@ async function processCommand(command, data) {
         }
         return { success: true, data: { entries: [] } };
       } catch (e) {
-        // Uygulama çökerse de hatayı yutma
+        // If the app crashes or is unreachable, do not swallow the error
         return { success: false, error: e.message };
       }
     }

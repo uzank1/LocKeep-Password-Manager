@@ -23,9 +23,9 @@ const passwordGenerator = require('../vault/passwordGenerator');
 const clipboardGuard = require('../security/clipboardGuard');
 const autoLock = require('../security/autoLock');
 
-// GÜVENLİK YARDIMCISI: Sıkı Metin Doğrulama Filtresi
+// Security helper: strict string input validation filter
 function isSafeString(input, maxLength) {
-  // Veri var mı? Metin mi? Boşluklardan mı ibaret? Sınırı aşıyor mu?
+  // Checks: Is it defined? Is it a string? Is it non-blank? Is it within max length?
   return typeof input === 'string' && input.trim().length > 0 && input.length <= maxLength;
 }
 
@@ -131,28 +131,28 @@ function registerAllHandlers() {
   });
 
   ipcMain.handle('vault:addEntry', async (_event, entryData) => {
-    // 🚨 1. AŞAMA: Tip Kontrolü (Obje olmalı, Array olmamalı)
+    // Security gate 1: Type check (must be a plain object, not an array)
     if (!entryData || typeof entryData !== 'object' || Array.isArray(entryData)) {
-      console.error('[GÜVENLİK] Geçersiz entryData formatı reddedildi.');
-      return { success: false, message: 'Güvenlik İhlali: Geçersiz veri formatı.' };
+      console.error('[SECURITY] Invalid entryData format rejected.');
+      return { success: false, message: 'Security violation: Invalid data format.' };
     }
 
-    // 🚨 2. AŞAMA: RAM Şişirme / Kötü Kod Sınırları
+    // Security gate 2: Field length limits to prevent RAM abuse / malicious payloads
     if (entryData.url && (typeof entryData.url !== 'string' || entryData.url.length > 2000)) {
-      return { success: false, message: 'Güvenlik İhlali: URL çok uzun veya geçersiz.' };
+      return { success: false, message: 'Security violation: URL too long or invalid.' };
     }
     if (entryData.username && (typeof entryData.username !== 'string' || entryData.username.length > 255)) {
-      return { success: false, message: 'Güvenlik İhlali: Kullanıcı adı çok uzun veya geçersiz.' };
+      return { success: false, message: 'Security violation: Username too long or invalid.' };
     }
     if (entryData.password && (typeof entryData.password !== 'string' || entryData.password.length > 1024)) {
-      return { success: false, message: 'Güvenlik İhlali: Şifre çok uzun veya geçersiz.' };
+      return { success: false, message: 'Security violation: Password too long or invalid.' };
     }
     // M-02: Validate title and notes length
     if (entryData.title && (typeof entryData.title !== 'string' || entryData.title.length > 500)) {
-      return { success: false, message: 'Güvenlik İhlali: Başlık çok uzun veya geçersiz.' };
+      return { success: false, message: 'Security violation: Title too long or invalid.' };
     }
     if (entryData.notes && (typeof entryData.notes !== 'string' || entryData.notes.length > 10000)) {
-      return { success: false, message: 'Güvenlik İhlali: Notlar çok uzun veya geçersiz.' };
+      return { success: false, message: 'Security violation: Notes too long or invalid.' };
     }
     // M-02: Validate category against allowlist
     if (entryData.category && !VALID_CATEGORIES.has(String(entryData.category).toLowerCase())) {
@@ -167,14 +167,14 @@ function registerAllHandlers() {
   });
 
   ipcMain.handle('vault:updateEntry', async (_event, id, updates) => {
-    // 🚨 ID Kontrolü (Max 50 karakterli bir metin olmalı)
+    // Security gate: ID validation (must be a string up to 50 characters)
     if (!isSafeString(id, 50)) {
-      return { success: false, message: 'Güvenlik İhlali: Geçersiz ID formatı.' };
+      return { success: false, message: 'Security violation: Invalid ID format.' };
     }
 
-    // 🚨 Updates Objesi Kontrolü
+    // Security gate: Updates object validation
     if (!updates || typeof updates !== 'object' || Array.isArray(updates)) {
-      return { success: false, message: 'Güvenlik İhlali: Geçersiz güncelleme formatı.' };
+      return { success: false, message: 'Security violation: Invalid update format.' };
     }
 
     try {
@@ -185,10 +185,10 @@ function registerAllHandlers() {
   });
 
   ipcMain.handle('vault:deleteEntry', async (_event, id) => {
-    // 🚨 ID içine SQL/Dosya yolu kodu sızdırılmasını engelle
+    // Security gate: prevent path traversal / injection via crafted ID strings
     if (!isSafeString(id, 50)) {
-      console.error('[GÜVENLİK] Geçersiz ID ile silme girişimi engellendi:', id);
-      return { success: false, message: 'Güvenlik İhlali: Geçersiz ID.' };
+      console.error('[SECURITY] Delete attempt with invalid ID blocked:', id);
+      return { success: false, message: 'Security violation: Invalid ID.' };
     }
 
     try {
@@ -199,10 +199,10 @@ function registerAllHandlers() {
   });
 
   ipcMain.handle('vault:searchDomain', (_event, domain) => {
-    // 🚨 Arama kutusuna devasa kodlar yazıp sistemi kilitlemelerini engelle
+    // Security gate: prevent oversized search strings from locking up the system
     if (domain && (typeof domain !== 'string' || domain.length > 2000)) {
-      console.error('[GÜVENLİK] Çok uzun arama metni engellendi.');
-      return { success: false, message: 'Güvenlik İhlali: Geçersiz arama metni.' };
+      console.error('[SECURITY] Oversized search string blocked.');
+      return { success: false, message: 'Security violation: Invalid search query.' };
     }
 
     try {

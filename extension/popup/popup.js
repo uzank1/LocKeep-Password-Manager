@@ -46,13 +46,13 @@ const actionBoxEl = document.getElementById('actionBox');
   statusEl.textContent = s.checking;
   taglineEl.textContent = s.tagline;
 
-  // 1. ADIM: Masaüstü uygulaması açık mı diye kontrol et
+  // Step 1: Check if the desktop application is running
   chrome.runtime.sendMessage({ type: 'PING' }, (pingResponse) => {
     if (chrome.runtime.lastError || !pingResponse || !pingResponse.success) {
       statusEl.textContent = s.disconnected;
       statusEl.className = 'status disconnected';
     } else {
-      // 2. ADIM: Kasa kilitli mi diye kontrol et
+      // Step 2: Check if the vault is locked
       chrome.runtime.sendMessage({ type: 'SEARCH_DOMAIN', domain: 'test.com' }, (searchResponse) => {
         if (searchResponse && searchResponse.error === 'Vault is locked.') {
           statusEl.textContent = s.locked;

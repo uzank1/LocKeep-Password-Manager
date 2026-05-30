@@ -35,7 +35,7 @@ function parseCSV(csvText) {
   for (let i = 0; i < csvText.length; i++) {
     const ch = csvText[i];
     if (ch === '"') {
-      // SADECE inQuotes durumunu değiştir, ama TIRNAĞI SİLME (current += ch)
+      // Toggle the inQuotes flag, but keep the quote character in the output (current += ch)
       inQuotes = !inQuotes;
       current += ch;
     } else if ((ch === '\n' || ch === '\r') && !inQuotes) {
@@ -213,7 +213,7 @@ function importFromFile(filePath) {
     return { success: false, message: `Unsupported file format: ${ext}. Use .csv or .json` };
   }
 
-  // Sadece boş olan kayıtları eler, kopyaları engelleme işini artık vaultManager yapıyor
+  // Filter out empty entries; deduplication is handled by vaultManager.addBulkEntries()
   const validEntries = rawEntries.filter(e => e && (e.username || e.password || e.url));
 
   return {
