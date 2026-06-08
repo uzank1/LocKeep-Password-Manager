@@ -133,10 +133,46 @@ html, body {
   animation: fadeIn 0.4s ease;
 }
 
+/* Keep the language choice visible without changing the lock form's rhythm. */
+.lock-language-picker {
+  position: absolute;
+  top: var(--space-lg);
+  right: var(--space-lg);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  z-index: 1;
+}
+
+.lock-language-picker label {
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.lock-language-picker select {
+  width: 132px;
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--font-sm);
+}
+
 .lock-container {
   width: 400px;
   padding: var(--space-3xl);
   text-align: center;
+}
+
+@media (max-width: 520px) {
+  .lock-language-picker {
+    left: var(--space-md);
+    right: var(--space-md);
+    justify-content: flex-end;
+  }
+
+  .lock-container {
+    width: min(100%, 400px);
+    padding: var(--space-2xl) var(--space-lg);
+  }
 }
 
 .lock-logo {
@@ -477,8 +513,16 @@ textarea { resize: vertical; min-height: 80px; }
 .strength-bar-fill {
   height: 100%;
   border-radius: var(--radius-full);
+  width: 0;
   transition: width var(--transition-base), background var(--transition-base);
 }
+
+/* Class-based strength levels keep the CSP free of inline style exceptions. */
+.strength-level-1 { width: 20%; background: var(--strength-very-weak); }
+.strength-level-2 { width: 40%; background: var(--strength-weak); }
+.strength-level-3 { width: 60%; background: var(--strength-fair); }
+.strength-level-4 { width: 80%; background: var(--strength-strong); }
+.strength-level-5 { width: 100%; background: var(--strength-excellent); }
 
 .strength-label { font-size: var(--font-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
 

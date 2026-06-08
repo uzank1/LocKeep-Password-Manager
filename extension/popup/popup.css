@@ -1,0 +1,82 @@
+/* Keeping popup styles in a file lets the extension enforce a stricter CSP. */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  width: 280px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #0f0f1a;
+  color: #e2e8f0;
+  padding: 16px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.header h1 {
+  font-size: 15px;
+  font-weight: 600;
+  background: linear-gradient(135deg, #818cf8, #a78bfa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.lock-icon {
+  font-size: 20px;
+}
+
+.status {
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  text-align: center;
+  font-weight: 500;
+}
+
+.status.connected {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.status.disconnected {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.status.locked {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.action-box {
+  display: none;
+  margin-top: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  font-size: 12px;
+  text-align: center;
+  line-height: 1.5;
+  color: #cbd5e1;
+}
+
+.action-box.visible {
+  display: block;
+}
+
+.info {
+  margin-top: 10px;
+  font-size: 11px;
+  color: #64748b;
+  text-align: center;
+}

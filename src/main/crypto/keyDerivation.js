@@ -55,6 +55,14 @@ const DERIVED_KEY_LENGTH = 32;
 /** Length of the random salt in bytes (128 bits). */
 const SALT_LENGTH = 16;
 
+/** Accept older vault headers, but refuse values that can exhaust the process. */
+const MIN_MEMORY_COST = 8192;    // 8 MiB
+const MAX_MEMORY_COST = 262144;  // 256 MiB
+const MIN_TIME_COST = 1;
+const MAX_TIME_COST = 10;
+const MIN_PARALLELISM = 1;
+const MAX_PARALLELISM = 8;
+
 // ─── Public API ─────────────────────────────────────────────────────────────
 
 /**
@@ -68,6 +76,14 @@ const SALT_LENGTH = 16;
  */
 function generateSalt() {
   return crypto.randomBytes(SALT_LENGTH);
+}
+
+function normalizeKdfInteger(value, fallback, min, max, label) {
+  const resolved = value === undefined || value === null ? fallback : value;
+  if (!Number.isInteger(resolved) || resolved < min || resolved > max) {
+    throw new Error(`SECURITY: Invalid ${label} in vault KDF parameters.`);
+  }
+  return resolved;
 }
 
 /**
@@ -128,9 +144,30 @@ async function deriveKey(masterPassword, salt, options = {}) {
   }
 
   // ── Resolve KDF parameters (allow overrides for vault compatibility) ────
-  const memoryCost  = options.memoryCost  || DEFAULT_MEMORY_COST;
-  const timeCost    = options.timeCost    || DEFAULT_TIME_COST;
-  const parallelism = options.parallelism || DEFAULT_PARALLELISM;
+  // These options are normally written by LocKeep itself, but a vault file can
+  // be edited on disk. Validate before Argon2 allocates memory for hostile
+  // header values.
+  const memoryCost = normalizeKdfInteger(
+    options.memoryCost,
+    DEFAULT_MEMORY_COST,
+    MIN_MEMORY_COST,
+    MAX_MEMORY_COST,
+    'memory cost'
+  );
+  const timeCost = normalizeKdfInteger(
+    options.timeCost,
+    DEFAULT_TIME_COST,
+    MIN_TIME_COST,
+    MAX_TIME_COST,
+    'time cost'
+  );
+  const parallelism = normalizeKdfInteger(
+    options.parallelism,
+    DEFAULT_PARALLELISM,
+    MIN_PARALLELISM,
+    MAX_PARALLELISM,
+    'parallelism'
+  );
 
   try {
     // ── Perform Argon2id key derivation ─────────────────────────────────
@@ -176,6 +213,9 @@ async function deriveKey(masterPassword, salt, options = {}) {
 async function deriveKeyWithParams(masterPassword, vaultKdfParams) {
   if (!vaultKdfParams || !vaultKdfParams.salt) {
     throw new Error('SECURITY: Invalid vault KDF parameters.');
+  }
+  if (vaultKdfParams.algorithm && vaultKdfParams.algorithm !== 'argon2id') {
+    throw new Error('SECURITY: Unsupported vault KDF algorithm.');
   }
 
   // Reconstruct the salt from base64 if stored as string
@@ -240,6 +280,12 @@ module.exports = {
     DEFAULT_TIME_COST,
     DEFAULT_PARALLELISM,
     DERIVED_KEY_LENGTH,
-    SALT_LENGTH
+    SALT_LENGTH,
+    MIN_MEMORY_COST,
+    MAX_MEMORY_COST,
+    MIN_TIME_COST,
+    MAX_TIME_COST,
+    MIN_PARALLELISM,
+    MAX_PARALLELISM
   }
 };

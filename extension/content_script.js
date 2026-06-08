@@ -58,6 +58,14 @@ class LocKeepContentScript {
     
     /** @type {HTMLElement|null} Currently visible "Save Password?" prompt element. */
     this.activePrompt = null;
+
+    /**
+     * Timestamp of the last real user gesture seen by this isolated script.
+     * We use it as a small safety rail so page scripts cannot open/fill the
+     * autofill menu with synthetic DOM events while normal clicks and keyboard
+     * navigation keep working exactly as users expect.
+     */
+    this._lastTrustedUserAction = 0;
     
     /** Guard flag: prevents injection before credentials have been fetched from the vault. */
     this._credentialsFetched = false; 
@@ -188,6 +196,15 @@ class LocKeepContentScript {
     // active the moment the SPA renders any field, with zero refreshes needed.
     this.setupSubmissionListeners();
     this._setupMutationObserver();
+
+    // Keep a short-lived record of genuine user input. Focus events can be
+    // caused by scripts on some pages, so the autofill menu only trusts focus
+    // when it follows a real pointer or keyboard action.
+    const rememberTrustedUserAction = (e) => {
+      if (e && e.isTrusted) this._lastTrustedUserAction = Date.now();
+    };
+    document.addEventListener('pointerdown', rememberTrustedUserAction, true);
+    document.addEventListener('keydown', rememberTrustedUserAction, true);
 
     // Click outside to close autofill dropdown
     document.addEventListener('click', (e) => {
@@ -357,7 +374,14 @@ class LocKeepContentScript {
   // Used to compare domains across subdomains for credential matching.
   getBaseDomain(hostname) {
     if (!hostname) return '';
-    const h = hostname.replace(/^https?:\/\//, '').replace(/\/$/, '').toLowerCase().split('?')[0];
+    let h = String(hostname).trim().toLowerCase();
+    try {
+      // URL parsing keeps paths and query strings out of the hostname. That
+      // matters for entries saved as full login URLs such as /signin or /auth.
+      h = new URL(h.includes('://') ? h : `https://${h}`).hostname.toLowerCase();
+    } catch {
+      h = h.replace(/^https?:\/\//, '').split(/[/?#]/)[0];
+    }
     const parts = h.split('.');
     if (parts.length >= 2) return parts.slice(-2).join('.');
     return h;
@@ -368,6 +392,16 @@ class LocKeepContentScript {
   domainMatches(otherDomain) {
     if (!otherDomain) return false;
     return this.getBaseDomain(this.domain) === this.getBaseDomain(otherDomain);
+  }
+
+  hasRecentTrustedUserAction(maxAgeMs = 1500) {
+    return Date.now() - this._lastTrustedUserAction <= maxAgeMs;
+  }
+
+  shouldHonorAutofillEvent(e) {
+    if (!e || !e.isTrusted) return false;
+    if (e.type === 'focus') return this.hasRecentTrustedUserAction();
+    return true;
   }
 
   /**
@@ -496,6 +530,7 @@ class LocKeepContentScript {
 
   setupAutofillDropdown(usernameInput, passwordInput) {
     const showDropdown = (e) => {
+      if (!this.shouldHonorAutofillEvent(e)) return;
       if (e) e.stopPropagation();
 
       // If dropdown is already active, just return to prevent flicker
@@ -528,6 +563,11 @@ class LocKeepContentScript {
         item.appendChild(titleSpan);
 
         item.addEventListener('mousedown', async (e) => {
+          // A real click is required before we ask the vault for the password.
+          // Synthetic events from the page can still reach this DOM node, but
+          // they should never be able to turn an entry id into cleartext.
+          if (!e.isTrusted) return;
+
           // FIX: Use mousedown + preventDefault to prevent the input losing focus
           // before the click registers, which previously caused the dropdown to
           // close via the document click listener before the item could be selected.
@@ -536,7 +576,11 @@ class LocKeepContentScript {
 
           let passwordToFill = cred.password;
           if (!passwordToFill && cred.id) {
-            const detailRes = await this.sendMessageToBackground({ type: 'GET_CREDENTIAL', id: cred.id });
+            const detailRes = await this.sendMessageToBackground({
+              type: 'GET_CREDENTIAL',
+              id: cred.id,
+              origin: window.location.origin
+            });
             if (detailRes && detailRes.success) {
               const resData = detailRes.data || {};
               passwordToFill = (resData.entry && resData.entry.password) || resData.password || detailRes.password;
@@ -723,6 +767,7 @@ class LocKeepContentScript {
     // Password generation click handler: requests a strong password from the
     // native host and fills all visible password inputs on the page with it.
     icon.addEventListener('click', async (e) => {
+      if (!e.isTrusted) return;
       e.preventDefault();
       e.stopPropagation();
       const res = await this.sendMessageToBackground({ type: 'GENERATE_PASSWORD' });
@@ -823,6 +868,7 @@ class LocKeepContentScript {
     // 2. JS-driven form submissions (listening to button clicks)
     // BUG-3 FIX: Capture input values SYNCHRONOUSLY at click time.
     document.addEventListener('click', (e) => {
+      if (!e.isTrusted) return;
       const btn = e.target.closest('button, input[type="submit"], input[type="button"]');
       if (!btn) return;
       if (btn.closest('.lockeep-save-prompt')) return;
@@ -905,6 +951,7 @@ class LocKeepContentScript {
     this.activePrompt = prompt;
 
     cancelBtn.addEventListener('click', (e) => {
+      if (!e.isTrusted) return;
       e.preventDefault();
       this.sendMessageToBackground({ type: 'CLEAR_PENDING_SAVE' });
       prompt.remove();
@@ -912,6 +959,7 @@ class LocKeepContentScript {
     });
 
     saveBtn.addEventListener('click', async (e) => {
+      if (!e.isTrusted) return;
       e.preventDefault();
 
       // ISSUE-2 FIX: Use saveUrl (derived from loginUrl passed into this method)

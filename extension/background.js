@@ -98,6 +98,56 @@ let _sharedSecretKey = null;
 /** @type {Promise|null} Resolves when the ECDH handshake completes. Awaited before sending any command. */
 let _handshakePromise = null;
 
+// ─── Origin Helpers ─────────────────────────────────────────────────────────
+// Content scripts can include a domain in their payload, but Chrome's sender
+// metadata is the value we can trust. Extension pages do not have sender.tab,
+// so they keep the older explicit-domain path used by the popup status check.
+
+function normalizeOrigin(value) {
+  if (!value || typeof value !== 'string') return '';
+  const raw = value.trim();
+  try {
+    return new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`).origin;
+  } catch {
+    return '';
+  }
+}
+
+function getSenderOrigin(sender) {
+  if (!sender || !sender.tab) return '';
+  return normalizeOrigin(sender.origin || sender.url || (sender.tab && sender.tab.url) || '');
+}
+
+function getEffectiveOrigin(sender, fallback) {
+  return getSenderOrigin(sender) || normalizeOrigin(fallback || '');
+}
+
+function getBaseDomain(value) {
+  const origin = normalizeOrigin(value);
+  if (!origin) return '';
+  const host = new URL(origin).hostname.toLowerCase();
+  const parts = host.split('.');
+  return parts.length >= 2 ? parts.slice(-2).join('.') : host;
+}
+
+function sameBaseDomain(a, b) {
+  const left = getBaseDomain(a);
+  const right = getBaseDomain(b);
+  return !!left && left === right;
+}
+
+function bindEntryToSenderOrigin(entry, origin) {
+  const next = { ...(entry || {}) };
+  if (origin) {
+    // Save prompts can fire after redirects, so we keep the origin that the
+    // content script captured, but we never let a web page claim another site.
+    next.url = origin;
+    next.domain = origin;
+    next.baseDomain = getBaseDomain(origin);
+  }
+  return next;
+}
+
 // ─── E2EE Encoding Helpers ──────────────────────────────────────────────────
 // Web Crypto API operates on ArrayBuffers, but Chrome's Native Messaging
 // protocol uses JSON (which cannot embed raw binary). These helpers convert
@@ -438,12 +488,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case 'SEARCH_DOMAIN':
           try {
             if (DEBUG) console.log(`[DIAGNOSTIC - Background] 1. Received SEARCH_DOMAIN raw domain: "${message.domain}"`);
-            let cleanOrigin = message.domain;
-            try {
-              cleanOrigin = new URL(cleanOrigin.startsWith('http') ? cleanOrigin : `https://${cleanOrigin}`).origin;
-            } catch (e) { }
+            const cleanOrigin = getEffectiveOrigin(sender, message.domain);
             if (DEBUG) console.log(`[DIAGNOSTIC - Background] 2. Sending to Native Host (cleanOrigin): "${cleanOrigin}"`);
-            response = await sendNativeMessage('QUERY_CREDENTIALS', { domain: cleanOrigin });
+            response = await sendNativeMessage('QUERY_CREDENTIALS', { domain: cleanOrigin, origin: cleanOrigin });
             if (DEBUG) console.log(`[DIAGNOSTIC - Background] 3. Response from Native Host:`, response);
 
             // If the vault is locked, pass the error through to the content script as-is.
@@ -459,13 +506,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
 
         case 'GET_CREDENTIAL':
-          response = await sendNativeMessage('GET_CREDENTIAL', { id: message.id });
+          {
+            // The page can suggest an origin, but sender metadata wins when a
+            // content script is involved.
+            const origin = getEffectiveOrigin(sender, message.origin || message.domain);
+            response = await sendNativeMessage('GET_CREDENTIAL', { id: message.id, origin });
+          }
           break;
         case 'ADD_ENTRY':
-          if (message.entry && message.entry.url) {
-            try { message.entry.url = new URL(message.entry.url).origin; } catch (e) { }
+          {
+            const origin = getEffectiveOrigin(sender, message.entry && message.entry.url);
+            const entry = bindEntryToSenderOrigin(message.entry, origin);
+            response = await sendNativeMessage('SAVE_CREDENTIAL', entry);
           }
-          response = await sendNativeMessage('SAVE_CREDENTIAL', message.entry);
           if (response && response.success) {
             _pendingSave = null;
             if (_pendingSaveTimer) { clearTimeout(_pendingSaveTimer); _pendingSaveTimer = null; }
@@ -475,9 +528,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           }
           break;
         case 'SET_PENDING_SAVE':
-          _pendingSave = message.entry;
-          if (_pendingSave && _pendingSave.url) {
-            try { _pendingSave.url = new URL(_pendingSave.url).origin; } catch (e) { }
+          {
+            const origin = getEffectiveOrigin(sender, message.entry && message.entry.url);
+            _pendingSave = bindEntryToSenderOrigin(message.entry, origin);
           }
           // C-03: Auto-clear _pendingSave after 120 seconds to limit the window
           // during which plaintext credentials exist in the service worker's memory
@@ -486,7 +539,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           response = { success: true };
           break;
         case 'GET_PENDING_SAVE':
-          response = { success: true, data: _pendingSave };
+          {
+            const origin = getSenderOrigin(sender);
+            const pendingOk = !_pendingSave || !origin || sameBaseDomain(origin, _pendingSave.url || _pendingSave.domain);
+            response = { success: true, data: pendingOk ? _pendingSave : null };
+          }
           break;
         case 'CLEAR_PENDING_SAVE':
           _pendingSave = null;
@@ -498,23 +555,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
         case 'SET_LAST_USERNAME':
           _lastUsername = message.username;
-          _lastUsernameDomain = message.domain;
+          {
+            const origin = getEffectiveOrigin(sender, message.domain);
+            _lastUsernameDomain = getBaseDomain(origin || message.domain);
+          }
           _lastUsernameTime = Date.now();
           response = { success: true };
           break;
         case 'GET_LAST_USERNAME':
-          if (_lastUsername && Date.now() - _lastUsernameTime < 15 * 60 * 1000) {
-            response = {
-              success: true,
-              username: _lastUsername,
-              domain: _lastUsernameDomain,
-              time: _lastUsernameTime
-            };
-          } else {
-            _lastUsername = null;
-            _lastUsernameDomain = null;
-            _lastUsernameTime = 0;
-            response = { success: false, error: 'Expired or not set' };
+          {
+            const origin = getSenderOrigin(sender);
+            const sameSite = !origin || sameBaseDomain(origin, _lastUsernameDomain);
+            if (_lastUsername && sameSite && Date.now() - _lastUsernameTime < 15 * 60 * 1000) {
+              response = {
+                success: true,
+                username: _lastUsername,
+                domain: _lastUsernameDomain,
+                time: _lastUsernameTime
+              };
+            } else {
+              _lastUsername = null;
+              _lastUsernameDomain = null;
+              _lastUsernameTime = 0;
+              response = { success: false, error: 'Expired or not set' };
+            }
           }
           break;
         case 'CLEAR_LAST_USERNAME':

@@ -194,7 +194,9 @@ async function processCommand(command, data) {
       return { success: true, data: { status: 'alive', version: '1.0.0' } };
     case 'QUERY_CREDENTIALS': {
       try {
-        const appRes = await sendToApp({ action: 'searchDomain', domain: data.domain });
+        // Keep the browser origin with the search request so the desktop app
+        // can apply the same host/scheme rules it uses for full credential reads.
+        const appRes = await sendToApp({ action: 'searchDomain', domain: data.domain, origin: data.origin || data.domain });
 
         // Forward error responses from the desktop app (e.g., "Vault is locked")
         // directly to the extension — never swallow errors silently.
@@ -216,7 +218,10 @@ async function processCommand(command, data) {
     }
     case 'GET_CREDENTIAL': {
       try {
-        const appRes = await sendToApp({ action: 'getCredential', id: data.id });
+        // Carry the browser origin through to the Electron process. The host is
+        // only a bridge; the vault should make the final call about whether an
+        // entry id belongs to the page that asked for it.
+        const appRes = await sendToApp({ action: 'getCredential', id: data.id, origin: data.origin });
         if (appRes && appRes.success && appRes.data) {
           if (!appRes.data.entry) {
             return { success: true, data: { entry: appRes.data } };
