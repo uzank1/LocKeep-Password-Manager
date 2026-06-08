@@ -42,7 +42,7 @@
     }
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'none';"
+    "extension_pages": "script-src 'self'; style-src 'self'; object-src 'none';"
   },
   "web_accessible_resources": [
     {

@@ -30,6 +30,33 @@ let _server = null;
 let _authToken = null;
 const PORT_FILE = path.join(app.getPath('appData'), 'LocKeepPasswordManager', '.ipc-port');
 const TOKEN_FILE = path.join(app.getPath('appData'), 'LocKeepPasswordManager', '.ipc-token');
+const MAX_IPC_MESSAGE_BYTES = 1024 * 1024;
+
+function writePrivateFile(filePath, content) {
+  fs.writeFileSync(filePath, content, { encoding: 'utf-8', mode: 0o600 });
+
+  // Windows does not fully honor POSIX modes, so keep this as a best-effort
+  // ACL pass. If it fails, the random token still exists; it just loses this
+  // extra hardening layer rather than breaking browser integration.
+  if (process.platform === 'win32' && process.env.USERNAME) {
+    try {
+      const { execFileSync } = require('child_process');
+      execFileSync('icacls', [filePath, '/inheritance:r', '/grant:r', `${process.env.USERNAME}:F`], {
+        stdio: 'ignore',
+        windowsHide: true
+      });
+    } catch { /* best effort only */ }
+  }
+}
+
+function isValidToken(token) {
+  if (!_authToken || typeof token !== 'string' || token.length !== _authToken.length) {
+    return false;
+  }
+  // Compare in constant time so a local client cannot learn the token one byte
+  // at a time from tiny timing differences.
+  return crypto.timingSafeEqual(Buffer.from(token, 'utf8'), Buffer.from(_authToken, 'utf8'));
+}
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
@@ -50,6 +77,12 @@ function startServer() {
         // Read length-prefixed messages
         while (buffer.length >= 4) {
           const msgLength = buffer.readUInt32LE(0);
+          // A native host should only send small JSON commands; anything larger
+          // is more likely to be a malformed or hostile payload than real work.
+          if (msgLength === 0 || msgLength > MAX_IPC_MESSAGE_BYTES) {
+            socket.destroy();
+            return;
+          }
           if (buffer.length < 4 + msgLength) break; // Wait for more data
 
           const jsonStr = buffer.slice(4, 4 + msgLength).toString('utf-8');
@@ -83,8 +116,8 @@ function startServer() {
       _authToken = crypto.randomBytes(32).toString('hex');
       const dir = path.dirname(PORT_FILE);
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(PORT_FILE, String(port), 'utf-8');
-      fs.writeFileSync(TOKEN_FILE, _authToken, 'utf-8');
+      writePrivateFile(PORT_FILE, String(port));
+      writePrivateFile(TOKEN_FILE, _authToken);
 
       console.log(`[IPC Server] Listening on 127.0.0.1:${port}`);
       resolve(port);
@@ -123,7 +156,7 @@ async function handleNativeCommand(jsonStr) {
   }
 
   // H-03: Validate auth token on every request
-  if (!_authToken || command.token !== _authToken) {
+  if (!isValidToken(command.token)) {
     return { success: false, error: 'Authentication failed: invalid or missing token.' };
   }
 
@@ -133,7 +166,7 @@ async function handleNativeCommand(jsonStr) {
 
     case 'searchDomain':
       try {
-        const entries = vaultManager.searchByDomain(command.domain || '');
+        const entries = vaultManager.searchByDomain(command.origin || command.domain || '');
         return { success: true, data: entries };
       } catch (err) {
         return { success: false, error: err.message };
@@ -141,7 +174,7 @@ async function handleNativeCommand(jsonStr) {
 
     case 'getCredential':
       try {
-        const cred = vaultManager.getCredential(command.id);
+        const cred = vaultManager.getCredential(command.id, command.origin || command.domain || '');
         return cred
           ? { success: true, data: cred }
           : { success: false, error: 'Credential not found.' };

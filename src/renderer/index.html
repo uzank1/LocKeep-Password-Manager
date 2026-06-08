@@ -12,6 +12,15 @@
 <body>
   <!-- ═══ Lock Screen ═══ -->
   <div id="lock-screen">
+    <!-- Let first-run users pick a language before they read the master password warning. -->
+    <div class="lock-language-picker">
+      <label for="lock-language-select" data-i18n="settings.language">Language</label>
+      <select id="lock-language-select" aria-label="Language">
+        <option value="en">English</option>
+        <option value="de">Deutsch</option>
+        <option value="tr">Türkçe</option>
+      </select>
+    </div>
     <div class="lock-container">
       <div class="lock-logo">&#128274;</div>
       <h1 class="lock-title" data-i18n="app.title">LocKeep</h1>

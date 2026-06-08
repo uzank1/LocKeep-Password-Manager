@@ -38,12 +38,14 @@ const modalContainer  = $('#modal-container');
 const toastContainer  = $('#toast-container');
 const pwRequirements  = $('#pw-requirements');
 const zkWarning       = $('#zk-warning');
+const lockLanguageSelect = $('#lock-language-select');
 
 // ─── Initialization ─────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', async () => {
   // Initialize i18n — translations are embedded, so this is synchronous-safe
   await I18n.initialize();
+  syncLanguageControls();
 
   const exists = await vault.exists();
 
@@ -69,6 +71,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 // ─── Event Listeners ────────────────────────────────────────────────────────
+
+function syncLanguageControls() {
+  const lang = I18n.getCurrentLanguage();
+  // The first-run picker and the Settings picker represent the same stored
+  // preference, so keep them visually in step whenever either one changes.
+  [lockLanguageSelect, $('#language-select')].forEach(select => {
+    if (select) select.value = lang;
+  });
+}
+
+function handleLanguageChange(e) {
+  I18n.setLanguage(e.target.value);
+  syncLanguageControls();
+}
 
 function setupEventListeners() {
   // Lock form submit
@@ -110,7 +126,8 @@ function setupEventListeners() {
   }
 
   // Settings
-  $('#language-select').addEventListener('change', (e) => I18n.setLanguage(e.target.value));
+  if (lockLanguageSelect) lockLanguageSelect.addEventListener('change', handleLanguageChange);
+  $('#language-select').addEventListener('change', handleLanguageChange);
   $('#autolock-select').addEventListener('change', handleAutoLockChange);
   $('#change-vault-path-btn').addEventListener('click', handleChangeVaultPath);
   $('#reset-vault-path-btn').addEventListener('click', handleResetVaultPath);
@@ -191,13 +208,10 @@ function validateMasterPassword() {
   // Update strength bar
   const bar = $('#pw-strength-bar');
   if (bar) {
-    const pct = (passed / 5) * 100;
-    bar.style.width = pct + '%';
-    if (pct <= 20)       bar.style.background = 'var(--strength-very-weak)';
-    else if (pct <= 40)  bar.style.background = 'var(--strength-weak)';
-    else if (pct <= 60)  bar.style.background = 'var(--strength-fair)';
-    else if (pct <= 80)  bar.style.background = 'var(--strength-strong)';
-    else                 bar.style.background = 'var(--strength-excellent)';
+    // Use CSS classes rather than inline styles so the lock screen keeps the
+    // same strict CSP as the rest of the renderer.
+    bar.className = 'strength-bar-fill';
+    if (passed > 0) bar.classList.add(`strength-level-${passed}`);
   }
 
   return passed === 5;
@@ -235,6 +249,10 @@ async function handleLockSubmit(e) {
       showLockError(I18n.t('lock.passwordMismatch'));
       return;
     }
+    // The language picker is available before the vault exists, so persist the
+    // final choice right before creation in case the user changes it and clicks
+    // Create immediately afterward.
+    await vault.saveSettings({ language: I18n.getCurrentLanguage() });
     const result = await vault.create(password);
     if (result.success) {
       showToast(I18n.t('lock.vaultCreated'), 'success');
@@ -330,14 +348,32 @@ function renderEntries(entries) {
     card.dataset.id = entry.id;
 
     const initial = (entry.title || entry.url || '?')[0].toUpperCase();
-    card.innerHTML = `
-      <div class="entry-favicon">${initial}</div>
-      <div class="entry-info">
-        <div class="entry-title">${escapeHtml(entry.title || 'Untitled')}</div>
-        <div class="entry-subtitle">${escapeHtml(entry.username || entry.url || '')}</div>
-      </div>
-      ${entry.favorite ? '<span class="entry-fav">\u2605</span>' : ''}
-    `;
+    // Imported vault data is still user-controlled, so the card is built with
+    // textContent instead of an HTML template.
+    const favicon = document.createElement('div');
+    favicon.className = 'entry-favicon';
+    favicon.textContent = initial;
+
+    const info = document.createElement('div');
+    info.className = 'entry-info';
+
+    const title = document.createElement('div');
+    title.className = 'entry-title';
+    title.textContent = entry.title || 'Untitled';
+
+    const subtitle = document.createElement('div');
+    subtitle.className = 'entry-subtitle';
+    subtitle.textContent = entry.username || entry.url || '';
+
+    info.append(title, subtitle);
+    card.append(favicon, info);
+
+    if (entry.favorite) {
+      const favorite = document.createElement('span');
+      favorite.className = 'entry-fav';
+      favorite.textContent = '\u2605';
+      card.appendChild(favorite);
+    }
 
     card.addEventListener('click', () => showEntryDetail(entry.id));
     fragment.appendChild(card);
@@ -603,8 +639,11 @@ async function handleExport() {
 async function loadSettings() {
   const settings = await vault.getSettings();
   if (settings.language) {
-    $('#language-select').value = settings.language;
+    if (settings.language !== I18n.getCurrentLanguage()) {
+      I18n.setLanguage(settings.language);
+    }
   }
+  syncLanguageControls();
   if (settings.autoLockMinutes !== undefined) {
     $('#autolock-select').value = String(settings.autoLockMinutes);
   }
@@ -681,7 +720,12 @@ function escapeHtml(str) {
 }
 
 function escapeAttr(str) {
-  return (str || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return (str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 function debounce(fn, ms) {

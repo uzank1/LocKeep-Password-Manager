@@ -486,6 +486,9 @@ const I18n = (function () {
     if (!TRANSLATIONS[lang]) lang = 'en';
     _currentLang = lang;
     _translations = TRANSLATIONS[lang];
+    // Keep the document language aligned with the visible UI language for
+    // screen readers and any browser-level text handling.
+    document.documentElement.lang = lang;
     updateDOM();
     if (window.vault && window.vault.saveSettings) {
       window.vault.saveSettings({ language: lang });
@@ -535,8 +538,10 @@ const I18n = (function () {
         if (settings && settings.language) lang = settings.language;
       }
     } catch (e) { /* use default */ }
+    if (!TRANSLATIONS[lang]) lang = 'en';
     _currentLang = lang;
     _translations = TRANSLATIONS[lang] || TRANSLATIONS.en;
+    document.documentElement.lang = _currentLang;
     updateDOM();
   }
 

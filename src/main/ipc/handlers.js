@@ -213,6 +213,12 @@ function registerAllHandlers() {
   });
 
   ipcMain.handle('vault:getCredential', (_event, id) => {
+    // The desktop UI normally passes UUIDs, but this keeps malformed renderer
+    // IPC calls from reaching the vault lookup path.
+    if (!isSafeString(id, 50)) {
+      return { success: false, message: 'Security violation: Invalid ID format.' };
+    }
+
     try {
       const cred = vaultManager.getCredential(id);
       return cred ? { success: true, credential: cred } : { success: false, message: 'Not found.' };
@@ -249,10 +255,15 @@ function registerAllHandlers() {
     // Add imported entries to vault
     try {
       const addResult = await vaultManager.addBulkEntries(importResult.entries);
+      const skipped = addResult.skipped || 0;
+      const skippedText = skipped ? ` Skipped ${skipped} invalid or oversized entries.` : '';
+      // Import can now reject individual bad rows inside a valid file, so the
+      // UI gets an honest summary without changing the successful import flow.
       return {
         success: true,
-        message: `Imported ${addResult.imported} entries from ${importResult.format} format.`,
+        message: `Imported ${addResult.imported} entries from ${importResult.format} format.${skippedText}`,
         imported: addResult.imported,
+        skipped,
         format: importResult.format
       };
     } catch (err) {

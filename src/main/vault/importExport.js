@@ -17,6 +17,9 @@
 const fs = require('fs');
 const path = require('path');
 
+const MAX_IMPORT_FILE_BYTES = 25 * 1024 * 1024;
+const MAX_IMPORT_ROWS = 10000;
+
 // ─── CSV Parser (no external deps — minimizes attack surface) ───────────────
 
 /**
@@ -161,7 +164,14 @@ function importFromFile(filePath) {
     return { success: false, message: 'File not found.' };
   }
 
+  const stats = fs.statSync(filePath);
+  if (stats.size > MAX_IMPORT_FILE_BYTES) {
+    return { success: false, message: 'Import file is too large.' };
+  }
+
   const ext = path.extname(filePath).toLowerCase();
+  // Read only after the size gate above, so a huge import file cannot force the
+  // main process to allocate an unbounded string.
   const content = fs.readFileSync(filePath, 'utf-8');
 
   let rawEntries;
@@ -173,9 +183,15 @@ function importFromFile(filePath) {
       const parsed = JSON.parse(content);
       // Bitwarden JSON export has { encrypted: false, items: [...] }
       if (parsed.items && Array.isArray(parsed.items)) {
+        if (parsed.items.length > MAX_IMPORT_ROWS) {
+          return { success: false, message: 'Import file contains too many entries.' };
+        }
         rawEntries = parsed.items.map(normalizeBitwardenJSON);
         detectedFormat = 'bitwarden_json';
       } else if (Array.isArray(parsed)) {
+        if (parsed.length > MAX_IMPORT_ROWS) {
+          return { success: false, message: 'Import file contains too many entries.' };
+        }
         rawEntries = parsed.map(normalizeGenericJSON);
         detectedFormat = 'generic_json';
       } else {
@@ -189,6 +205,9 @@ function importFromFile(filePath) {
     const rows = parseCSV(content);
     if (rows.length === 0) {
       return { success: false, message: 'CSV file is empty or has no data rows.' };
+    }
+    if (rows.length > MAX_IMPORT_ROWS) {
+      return { success: false, message: 'Import file contains too many rows.' };
     }
 
     const headers = Object.keys(rows[0]);

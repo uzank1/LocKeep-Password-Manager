@@ -40,6 +40,7 @@ const fsp = fs.promises;
 const path = require('path');
 const crypto = require('crypto');
 const os = require('os');
+const net = require('net');
 const { app } = require('electron');
 
 const { generateSalt, deriveKey, deriveKeyWithParams, getDefaultKdfConfig, zeroizeBuffer } = require('../crypto/keyDerivation');
@@ -51,6 +52,18 @@ const { randomUUID } = require('../crypto/secureRandom');
 const VAULT_FILENAME = 'vault.dat';
 const SETTINGS_FILENAME = 'settings.json';
 const VAULT_VERSION = 1;
+const ENTRY_LIMITS = {
+  title: 500,
+  username: 255,
+  password: 1024,
+  url: 2000,
+  notes: 10000
+};
+const VALID_CATEGORIES = new Set(['login', 'note', 'card', 'identity', 'other']);
+const MAX_BULK_IMPORT_ENTRIES = 10000;
+const VALID_SETTING_LANGUAGES = new Set(['en', 'de', 'tr']);
+const VALID_AUTO_LOCK_MINUTES = new Set([0, 1, 5, 15]);
+const MAX_VAULT_PATH_LENGTH = 4096;
 
 // ─── Module State (private) ─────────────────────────────────────────────────
 
@@ -135,6 +148,42 @@ function _getSettingsHmacKey() {
   return crypto.createHash('sha256').update(fingerprint).digest();
 }
 
+function _settingsHasOwn(value, key) {
+  return Object.prototype.hasOwnProperty.call(value || {}, key);
+}
+
+function _sanitizeSettings(settings) {
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+    return {};
+  }
+
+  const clean = {};
+
+  if (_settingsHasOwn(settings, 'language') && VALID_SETTING_LANGUAGES.has(settings.language)) {
+    clean.language = settings.language;
+  }
+
+  if (_settingsHasOwn(settings, 'autoLockMinutes') && VALID_AUTO_LOCK_MINUTES.has(settings.autoLockMinutes)) {
+    clean.autoLockMinutes = settings.autoLockMinutes;
+  }
+
+  if (_settingsHasOwn(settings, 'vaultPath')) {
+    if (settings.vaultPath === null) {
+      clean.vaultPath = null;
+    } else if (
+      typeof settings.vaultPath === 'string'
+      && settings.vaultPath.length > 0
+      && settings.vaultPath.length <= MAX_VAULT_PATH_LENGTH
+    ) {
+      clean.vaultPath = settings.vaultPath;
+    }
+  }
+
+  // Settings are reachable before the vault is unlocked, so only the fields
+  // the app actually uses should ever land in settings.json.
+  return clean;
+}
+
 /**
  * Loads user settings from disk (vault path, language, auto-lock timeout).
  * H-05: Verifies HMAC integrity. Old format (no HMAC) auto-migrated on next save.
@@ -155,11 +204,11 @@ function loadSettings() {
           console.warn('[SECURITY] Settings integrity check failed. Using defaults.');
           return {};
         }
-        return parsed._data;
+        return _sanitizeSettings(parsed._data);
       }
 
       // Old format without HMAC (backward compat — will be migrated on next save)
-      return parsed;
+      return _sanitizeSettings(parsed);
     }
   } catch {
     // Corrupted settings — return defaults
@@ -175,8 +224,9 @@ function loadSettings() {
 function saveSettings(newSettings) {
   try {
     const settingsPath = getSettingsPath();
-    const existing = loadSettings();
-    const merged = { ...existing, ...newSettings };
+    const existing = _sanitizeSettings(loadSettings());
+    const incoming = _sanitizeSettings(newSettings);
+    const merged = _sanitizeSettings({ ...existing, ...incoming });
     const dir = path.dirname(settingsPath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
@@ -400,6 +450,145 @@ async function changeMasterPassword(currentPassword, newPassword) {
   return { success: true, message: 'Master password changed successfully.' };
 }
 
+// ─── Entry Validation Helpers ───────────────────────────────────────────────
+
+function _isPlainObject(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function _hasOwn(value, key) {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function _cleanEntryString(value, fieldName, maxLength) {
+  if (value === undefined || value === null) return '';
+  if (typeof value !== 'string') {
+    throw new Error(`VAULT: ${fieldName} must be a string.`);
+  }
+  if (value.length > maxLength) {
+    throw new Error(`VAULT: ${fieldName} exceeds the allowed length.`);
+  }
+  return value;
+}
+
+function _cleanEntryCategory(value) {
+  if (value === undefined || value === null || value === '') return 'login';
+  const category = String(value).toLowerCase();
+  return VALID_CATEGORIES.has(category) ? category : 'login';
+}
+
+function _sanitizeEntryData(entryData, { partial = false } = {}) {
+  if (!_isPlainObject(entryData)) {
+    throw new Error('VAULT: Entry data must be a plain object.');
+  }
+
+  const clean = {};
+  const stringFields = [
+    ['title', ENTRY_LIMITS.title],
+    ['username', ENTRY_LIMITS.username],
+    ['password', ENTRY_LIMITS.password],
+    ['url', ENTRY_LIMITS.url],
+    ['notes', ENTRY_LIMITS.notes]
+  ];
+
+  for (const [field, maxLength] of stringFields) {
+    if (partial && !_hasOwn(entryData, field)) continue;
+    const value = field === 'title' && !_hasOwn(entryData, field) ? entryData.name : entryData[field];
+    clean[field] = _cleanEntryString(value, field, maxLength);
+  }
+
+  if (!partial || _hasOwn(entryData, 'category')) {
+    clean.category = _cleanEntryCategory(entryData.category);
+  }
+
+  if (!partial || _hasOwn(entryData, 'favorite')) {
+    clean.favorite = Boolean(entryData.favorite);
+  }
+
+  // Renderer validation is useful for UX, but native messaging and imports can
+  // reach the vault directly. Keeping the same rules here makes this the final
+  // gate before encrypted data is written.
+  return clean;
+}
+
+function _stripHostNoise(hostname) {
+  return String(hostname || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^\[(.*)\]$/, '$1')
+    .replace(/\.$/, '')
+    .replace(/^www\./, '');
+}
+
+function _parseOriginLike(value) {
+  if (!value || typeof value !== 'string') return null;
+  const raw = value.trim();
+  if (!raw) return null;
+
+  const explicitScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw);
+  try {
+    const parsed = new URL(explicitScheme ? raw : `https://${raw}`);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    const host = _stripHostNoise(parsed.hostname);
+    if (!host) return null;
+    return {
+      scheme: parsed.protocol.slice(0, -1),
+      host,
+      explicitScheme
+    };
+  } catch {
+    return null;
+  }
+}
+
+function _isLocalHost(hostname) {
+  const host = _stripHostNoise(hostname);
+  return host === 'localhost' ||
+    host === '::1' ||
+    host === '0.0.0.0' ||
+    host === '127.0.0.1' ||
+    host.endsWith('.localhost') ||
+    host.startsWith('127.');
+}
+
+function _isValidHostForMatching(hostname) {
+  const host = _stripHostNoise(hostname);
+  if (!host || host.length > 253) return false;
+  if (_isLocalHost(host) || net.isIP(host)) return true;
+  if (!/^[a-z0-9.-]+$/.test(host) || host.includes('..')) return false;
+  return host.split('.').every(label =>
+    label.length > 0 &&
+    label.length <= 63 &&
+    !label.startsWith('-') &&
+    !label.endsWith('-')
+  );
+}
+
+function _canBeParentDomain(hostname) {
+  const host = _stripHostNoise(hostname);
+  return _isLocalHost(host) || net.isIP(host) || host.includes('.');
+}
+
+function _schemesCompatible(queryInfo, entryInfo) {
+  if (!queryInfo || !entryInfo) return false;
+  if (!queryInfo.explicitScheme || !entryInfo.explicitScheme) return true;
+  if (_isLocalHost(queryInfo.host) || _isLocalHost(entryInfo.host)) return true;
+  return queryInfo.scheme === entryInfo.scheme;
+}
+
+function _entryMatchesOrigin(entry, origin) {
+  const queryInfo = _parseOriginLike(origin);
+  if (!queryInfo || !_isValidHostForMatching(queryInfo.host)) return false;
+
+  // The extension filters entries before showing the dropdown, but the vault
+  // repeats the origin check because this is the last stop before cleartext
+  // passwords leave the encrypted store.
+  return [entry && entry.url, entry && entry.domain]
+    .map(_parseOriginLike)
+    .filter(info => info && _isValidHostForMatching(info.host))
+    .some(info => _matchHosts(info.host, queryInfo.host) && _schemesCompatible(queryInfo, info));
+}
+
 // ─── Entry CRUD ─────────────────────────────────────────────────────────────
 
 /**
@@ -433,16 +622,17 @@ function getEntryById(id) {
 async function addEntry(entryData) {
   requireUnlocked();
 
+  const cleanData = _sanitizeEntryData(entryData);
   const now = new Date().toISOString();
   const entry = {
     id: randomUUID(),
-    title: entryData.title || '',
-    username: entryData.username || '',
-    password: entryData.password || '',
-    url: entryData.url || '',
-    notes: entryData.notes || '',
-    category: entryData.category || 'login',
-    favorite: entryData.favorite || false,
+    title: cleanData.title,
+    username: cleanData.username,
+    password: cleanData.password,
+    url: cleanData.url,
+    notes: cleanData.notes,
+    category: cleanData.category,
+    favorite: cleanData.favorite,
     createdAt: now,
     updatedAt: now
   };
@@ -474,9 +664,10 @@ async function updateEntry(id, updates) {
 
   // Merge updates (exclude id and createdAt from being overwritten)
   const { id: _ignoreId, createdAt: _ignoreCreated, ...safeUpdates } = updates;
+  const cleanUpdates = _sanitizeEntryData(safeUpdates, { partial: true });
   _entries[idx] = {
     ..._entries[idx],
-    ...safeUpdates,
+    ...cleanUpdates,
     updatedAt: new Date().toISOString()
   };
 
@@ -536,9 +727,8 @@ async function deleteEntry(id) {
  * @returns {string} The bare hostname
  */
 function extractHost(cleanStr) {
-  if (!cleanStr) return '';
-  const hostPart = cleanStr.split('/')[0];
-  return hostPart.split(':')[0];
+  const parsed = _parseOriginLike(cleanStr);
+  return parsed ? parsed.host : '';
 }
 
 /**
@@ -556,8 +746,12 @@ function extractHost(cleanStr) {
  * @returns {boolean} Whether the hosts match at a domain boundary
  */
 function _matchHosts(h1, h2) {
-  if (!h1 || !h2) return false;
-  return h1 === h2 || h1.endsWith('.' + h2) || h2.endsWith('.' + h1);
+  const left = _stripHostNoise(h1);
+  const right = _stripHostNoise(h2);
+  if (!left || !right) return false;
+  if (left === right) return true;
+  if (!_canBeParentDomain(left) || !_canBeParentDomain(right)) return false;
+  return left.endsWith('.' + right) || right.endsWith('.' + left);
 }
 
 function searchByDomain(domainQuery) {
@@ -567,23 +761,21 @@ function searchByDomain(domainQuery) {
     return [];
   }
 
-  const cleanQuery = _cleanDomain(domainQuery);
-  if (!cleanQuery) return [];
+  const queryInfo = _parseOriginLike(domainQuery);
+  if (!queryInfo || !_isValidHostForMatching(queryInfo.host)) return [];
+  const cleanQuery = queryInfo.host;
 
   // P-05: O(1) index lookup
-  const matchedEntries = _domainIndex ? (_domainIndex.get(cleanQuery) || []) : [];
+  const matchedEntries = _domainIndex
+    ? (_domainIndex.get(cleanQuery) || []).filter(entry => _entryMatchesOrigin(entry, domainQuery))
+    : [];
 
   // Also check for partial/subdomain matches via a linear fallback
   // (handles cases like "login.github.com" matching "github.com")
   const indexMatches = new Set(matchedEntries.map(e => e.id));
-  const hostQuery = extractHost(cleanQuery);
   for (const entry of _entries) {
     if (indexMatches.has(entry.id)) continue;
-    const cleanUrl = _cleanDomain(entry.url);
-    const cleanDomain = _cleanDomain(entry.domain);
-    const hostUrl = extractHost(cleanUrl);
-    const hostDomain = extractHost(cleanDomain);
-    if (_matchHosts(hostUrl, hostQuery) || _matchHosts(hostDomain, hostQuery)) {
+    if (_entryMatchesOrigin(entry, domainQuery)) {
       matchedEntries.push(entry);
     }
   }
@@ -602,11 +794,15 @@ function searchByDomain(domainQuery) {
  * Used by the browser extension after user selects from dropdown.
  *
  * @param {string} id - Entry UUID
+ * @param {string} [origin] - Browser origin requesting the entry
  * @returns {Object|null} Full entry including password, or null
  */
-function getCredential(id) {
+function getCredential(id, origin = '') {
   requireUnlocked();
   const entry = _entries.find(e => e.id === id);
+  if (entry && origin && !_entryMatchesOrigin(entry, origin)) {
+    return null;
+  }
   return entry ? { ...entry } : null;
 }
 
@@ -619,26 +815,38 @@ function getCredential(id) {
 async function addBulkEntries(entries) {
   requireUnlocked();
 
+  if (!Array.isArray(entries)) {
+    throw new Error('VAULT: Import data must be an array.');
+  }
+
   const now = new Date().toISOString();
   let imported = 0;
+  let skipped = 0;
+  const cappedEntries = entries.slice(0, MAX_BULK_IMPORT_ENTRIES);
+  skipped += Math.max(0, entries.length - cappedEntries.length);
 
   // Helper: extract the bare hostname from a URL for deduplication comparison
   const getDomain = (url) => {
-    if (!url) return '';
-    try {
-      return new URL(url.startsWith('http') ? url : `https://${url}`).hostname.replace(/^www\./, '');
-    } catch {
-      return url;
-    }
+    return _cleanDomain(url);
   };
 
-  for (const entryData of entries) {
+  for (const entryData of cappedEntries) {
+    let cleanData;
+    try {
+      cleanData = _sanitizeEntryData(entryData);
+    } catch {
+      // Imports should be forgiving: a bad row is skipped, not allowed to abort
+      // the entire batch or write oversized fields into the encrypted vault.
+      skipped++;
+      continue;
+    }
+
     // Deduplication check: skip if an entry with the same username, password,
     // and domain already exists in the vault
     const isDuplicate = _entries.some(existing =>
-      existing.username === entryData.username &&
-      existing.password === entryData.password &&
-      getDomain(existing.url) === getDomain(entryData.url)
+      existing.username === cleanData.username &&
+      existing.password === cleanData.password &&
+      getDomain(existing.url) === getDomain(cleanData.url)
     );
 
     if (isDuplicate) {
@@ -647,13 +855,13 @@ async function addBulkEntries(entries) {
 
     const entry = {
       id: randomUUID(),
-      title: entryData.title || entryData.name || '',
-      username: entryData.username || '',
-      password: entryData.password || '',
-      url: entryData.url || '',
-      notes: entryData.notes || '',
-      category: entryData.category || 'login',
-      favorite: entryData.favorite || false,
+      title: cleanData.title,
+      username: cleanData.username,
+      password: cleanData.password,
+      url: cleanData.url,
+      notes: cleanData.notes,
+      category: cleanData.category,
+      favorite: cleanData.favorite,
       createdAt: now,
       updatedAt: now
     };
@@ -663,7 +871,7 @@ async function addBulkEntries(entries) {
   }
 
   await persistVault();
-  return { success: true, imported };
+  return { success: true, imported, skipped };
 }
 
 // ─── Internal Helpers ───────────────────────────────────────────────────────
@@ -763,12 +971,8 @@ function zeroizeState() {
  * @returns {string} Cleaned domain string
  */
 function _cleanDomain(str) {
-  if (!str || typeof str !== 'string') return '';
-  return str.toLowerCase()
-    .replace(/^https?:\/\//, '')
-    .replace(/^www\./, '')
-    .replace(/\/+$/, '')
-    .trim();
+  const parsed = _parseOriginLike(str);
+  return parsed && _isValidHostForMatching(parsed.host) ? parsed.host : '';
 }
 
 /**
