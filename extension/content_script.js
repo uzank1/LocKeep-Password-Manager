@@ -640,6 +640,8 @@ class LocKeepContentScript {
       const isSignup = this.isSignupForm(form, passInput);
       if (DEBUG) console.log(`[DIAGNOSTIC - DOM] 2. Form Analysis:`, { usernameInputFound: !!usernameInput, isSignup, credsCount: this.credentials?.length });
 
+      this.injectGenerateIcon(passInput);
+
       if (isSignup) {
         // BUG-5 FIX: usernameInput is no longer passed — icon positioning is
         // purely relative to passwordInput via getSingleInputWrapper().
