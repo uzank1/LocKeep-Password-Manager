@@ -274,11 +274,12 @@ class LocKeepContentScript {
    */
   async _fetchCredentials() {
     try {
-      const baseDomain = this.getBaseDomain(this.domain);
-      if (DEBUG) console.log(`[DIAGNOSTIC - Content] 1. Requesting credentials for origin: "${window.location.origin}", baseDomain: "${baseDomain}"`);
+      const lookupOrigin = this.getCredentialLookupOrigin();
+      const baseDomain = this.getBaseDomain(lookupOrigin);
+      if (DEBUG) console.log(`[DIAGNOSTIC - Content] 1. Requesting credentials for origin: "${lookupOrigin}", baseDomain: "${baseDomain}"`);
       const response = await this.sendMessageToBackground({
         type: 'SEARCH_DOMAIN',
-        domain: window.location.origin,
+        domain: lookupOrigin,
         baseDomain: baseDomain
       });
       if (DEBUG) console.log(`[DIAGNOSTIC - Content] 2. Raw Response from Background:`, response);
@@ -392,6 +393,22 @@ class LocKeepContentScript {
   domainMatches(otherDomain) {
     if (!otherDomain) return false;
     return this.getBaseDomain(this.domain) === this.getBaseDomain(otherDomain);
+  }
+
+  isGoogleAccountsSignin() {
+    const host = (window.location.hostname || '').toLowerCase();
+    const path = (window.location.pathname || '').toLowerCase();
+    return host === 'accounts.google.com' && /\/(?:v\d+\/)?signin\//.test(path);
+  }
+
+  getCredentialLookupOrigin() {
+    // Google collects Gmail credentials on accounts.google.com, while users
+    // usually save entries for mail.google.com or google.com. Query the Google
+    // parent domain only for the real Google sign-in host so sibling Google
+    // login pages can find the saved Gmail entry without broadening matching
+    // rules for unrelated websites.
+    if (this.isGoogleAccountsSignin()) return 'https://google.com';
+    return window.location.origin;
   }
 
   hasRecentTrustedUserAction(maxAgeMs = 1500) {
@@ -598,7 +615,10 @@ class LocKeepContentScript {
       const credentials = Array.isArray(this.credentials) ? this.credentials : [];
       if (credentials.length === 0) return;
 
-      const rect = anchorInput.getBoundingClientRect();
+      const triggerInput = e && e.currentTarget && typeof e.currentTarget.getBoundingClientRect === 'function'
+        ? e.currentTarget
+        : anchorInput;
+      const rect = triggerInput.getBoundingClientRect();
       const dropdown = document.createElement('div');
       dropdown.className = 'lockeep-dropdown';
       // position:fixed → coordinates relative to viewport, no scroll offset needed
@@ -638,7 +658,7 @@ class LocKeepContentScript {
             const detailRes = await this.sendMessageToBackground({
               type: 'GET_CREDENTIAL',
               id: cred.id,
-              origin: window.location.origin
+              origin: this.getCredentialLookupOrigin()
             });
             if (detailRes && detailRes.success) {
               const resData = detailRes.data || {};
@@ -671,8 +691,13 @@ class LocKeepContentScript {
 
     // FIX: Listen to both 'focus' and 'click' — 'focus' alone misses the case
     // where the input is already focused when the page loads (e.g. autofocused inputs).
-    anchorInput.addEventListener('focus', showDropdown);
-    anchorInput.addEventListener('click', showDropdown);
+    const triggerInputs = [anchorInput, passwordInput].filter((input, index, inputs) =>
+      input && inputs.indexOf(input) === index
+    );
+    triggerInputs.forEach(input => {
+      input.addEventListener('focus', showDropdown);
+      input.addEventListener('click', showDropdown);
+    });
   }
 
   // ─── Generate Icon ─────────────────────────────────────────────────────────
