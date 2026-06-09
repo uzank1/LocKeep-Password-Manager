@@ -21,7 +21,7 @@ nsis:
   perMachine: false
   allowToChangeInstallationDirectory: true
   shortcutName: LocKeep
-  deleteAppDataOnUninstall: true
+  deleteAppDataOnUninstall: false
   include: build/installer.nsh
   license: "build/license.txt"
 mac:
