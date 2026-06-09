@@ -122,6 +122,39 @@ function getEffectiveOrigin(sender, fallback) {
   return getSenderOrigin(sender) || normalizeOrigin(fallback || '');
 }
 
+function isTrustedGoogleSigninSender(sender) {
+  const senderOrigin = getSenderOrigin(sender);
+  if (!senderOrigin) return false;
+
+  try {
+    const originUrl = new URL(senderOrigin);
+    if (originUrl.hostname.toLowerCase() !== 'accounts.google.com') return false;
+
+    const pageUrl = normalizeOrigin(sender && (sender.url || (sender.tab && sender.tab.url)));
+    if (pageUrl !== senderOrigin) return false;
+
+    const rawUrl = sender && (sender.url || (sender.tab && sender.tab.url));
+    const path = rawUrl ? new URL(rawUrl).pathname.toLowerCase() : '';
+    return /\/(?:v\d+\/)?signin\//.test(path);
+  } catch {
+    return false;
+  }
+}
+
+function getCredentialLookupOrigin(sender, fallback) {
+  const senderOrigin = getSenderOrigin(sender);
+  const requestedOrigin = normalizeOrigin(fallback || '');
+
+  if (
+    requestedOrigin === 'https://google.com' &&
+    isTrustedGoogleSigninSender(sender)
+  ) {
+    return requestedOrigin;
+  }
+
+  return senderOrigin || requestedOrigin;
+}
+
 function getBaseDomain(value) {
   const origin = normalizeOrigin(value);
   if (!origin) return '';
@@ -488,7 +521,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case 'SEARCH_DOMAIN':
           try {
             if (DEBUG) console.log(`[DIAGNOSTIC - Background] 1. Received SEARCH_DOMAIN raw domain: "${message.domain}"`);
-            const cleanOrigin = getEffectiveOrigin(sender, message.domain);
+            const cleanOrigin = getCredentialLookupOrigin(sender, message.domain);
             if (DEBUG) console.log(`[DIAGNOSTIC - Background] 2. Sending to Native Host (cleanOrigin): "${cleanOrigin}"`);
             response = await sendNativeMessage('QUERY_CREDENTIALS', { domain: cleanOrigin, origin: cleanOrigin });
             if (DEBUG) console.log(`[DIAGNOSTIC - Background] 3. Response from Native Host:`, response);
@@ -509,7 +542,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           {
             // The page can suggest an origin, but sender metadata wins when a
             // content script is involved.
-            const origin = getEffectiveOrigin(sender, message.origin || message.domain);
+            const origin = getCredentialLookupOrigin(sender, message.origin || message.domain);
             response = await sendNativeMessage('GET_CREDENTIAL', { id: message.id, origin });
           }
           break;
