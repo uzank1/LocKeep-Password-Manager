@@ -1,6 +1,6 @@
 {
   "name": "lockeep-password-manager",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "LocKeep — Strictly Offline, Zero-Knowledge Password Manager",
   "main": "src/main/main.js",
   "author": {

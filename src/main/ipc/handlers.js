@@ -339,8 +339,10 @@ function registerAllHandlers() {
   });
 
   ipcMain.handle('autolock:setTimeout', (_event, minutes) => {
-    autoLock.setLockTimeout(typeof minutes === 'number' ? minutes : 5);
-    vaultManager.saveSettings({ autoLockMinutes: minutes });
+    const allowedMinutes = new Set([0, 1, 5, 15]);
+    const normalizedMinutes = allowedMinutes.has(minutes) ? minutes : 5;
+    autoLock.setLockTimeout(normalizedMinutes);
+    vaultManager.saveSettings({ autoLockMinutes: normalizedMinutes });
     return { success: true };
   });
 

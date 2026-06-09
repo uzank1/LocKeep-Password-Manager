@@ -439,6 +439,52 @@ class LocKeepContentScript {
     return null;
   }
 
+  isInputVisible(input) {
+    if (!input || input.type === 'hidden' || input.hidden || input.disabled) return false;
+
+    const style = window.getComputedStyle ? window.getComputedStyle(input) : null;
+    if (style && (style.display === 'none' || style.visibility === 'hidden')) return false;
+
+    const rect = input.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+
+  getVisiblePasswordInputs(scope = document) {
+    return Array.from(scope.querySelectorAll('input[type="password"]'))
+      .filter(input => this.isInputVisible(input));
+  }
+
+  isKnownLoginPasswordStep(form, passwordInput) {
+    if (!passwordInput) return false;
+
+    const autocomplete = (passwordInput.getAttribute('autocomplete') || '').toLowerCase();
+    if (autocomplete === 'current-password') return true;
+    if (autocomplete === 'new-password') return false;
+
+    const host = (window.location.hostname || '').toLowerCase();
+    const path = (window.location.pathname || '').toLowerCase();
+    if (host === 'accounts.google.com' && /\/signin\/challenge\/pwd\b/.test(path)) {
+      return true;
+    }
+
+    const formAction = form && form.getAttribute ? form.getAttribute('action') : '';
+    const haystack = [
+      host,
+      path,
+      form && form.id,
+      form && form.name,
+      formAction,
+      passwordInput.id,
+      passwordInput.name,
+      passwordInput.placeholder,
+      passwordInput.getAttribute('aria-label')
+    ].filter(Boolean).join(' ').toLowerCase();
+
+    const loginLike = /(login|log-in|signin|sign-in|sign_in|giris|oturum|auth|authenticate|challenge\/pwd)/i.test(haystack);
+    const signupLike = /(signup|sign-up|register|join|create|new-password)/i.test(haystack);
+    return loginLike && !signupLike;
+  }
+
   // ─── Core Analysis ─────────────────────────────────────────────────────────
 
   analyzeAndInject() {
@@ -460,8 +506,12 @@ class LocKeepContentScript {
         // purely relative to passwordInput via getSingleInputWrapper().
         this.injectGenerateIcon(passInput);
       } else {
-        if (usernameInput && Array.isArray(this.credentials) && this.credentials.length > 0) {
-          this.setupAutofillDropdown(usernameInput, passInput);
+        if (Array.isArray(this.credentials) && this.credentials.length > 0) {
+          // Multi-step login pages often remove the username field before
+          // showing the password step. In that case, anchor the dropdown to
+          // the password input without treating it as a username field.
+          const autofillAnchor = usernameInput || passInput;
+          this.setupAutofillDropdown(autofillAnchor, passInput, usernameInput);
         }
       }
     });
@@ -498,17 +548,24 @@ class LocKeepContentScript {
    * @returns {boolean}
    */
   isSignupForm(form, passwordInput) {
+    if (this.isKnownLoginPasswordStep(form, passwordInput)) return false;
+
+    const autocomplete = passwordInput
+      ? (passwordInput.getAttribute('autocomplete') || '').toLowerCase()
+      : '';
+    if (autocomplete === 'new-password') return true;
+
     if (!form || form === document.body) {
       if (passwordInput) {
         const inputAttr = `${passwordInput.id || ''} ${passwordInput.name || ''}`.toLowerCase();
         if (/(new|signup|register)/i.test(inputAttr)) return true;
       }
-      const allPass = document.querySelectorAll('input[type="password"]');
+      const allPass = this.getVisiblePasswordInputs(document);
       if (allPass.length > 1) return true;
       return false;
     }
 
-    const passwordInputs = form.querySelectorAll('input[type="password"]');
+    const passwordInputs = this.getVisiblePasswordInputs(form);
     if (passwordInputs.length > 1) return true;
 
     const formAttr = `${form.id || ''} ${form.name || ''} ${form.action || ''}`.toLowerCase();
@@ -528,7 +585,9 @@ class LocKeepContentScript {
 
   // ─── Autofill Dropdown ─────────────────────────────────────────────────────
 
-  setupAutofillDropdown(usernameInput, passwordInput) {
+  setupAutofillDropdown(anchorInput, passwordInput, usernameInput = anchorInput) {
+    if (!anchorInput || !passwordInput) return;
+
     const showDropdown = (e) => {
       if (!this.shouldHonorAutofillEvent(e)) return;
       if (e) e.stopPropagation();
@@ -539,7 +598,7 @@ class LocKeepContentScript {
       const credentials = Array.isArray(this.credentials) ? this.credentials : [];
       if (credentials.length === 0) return;
 
-      const rect = usernameInput.getBoundingClientRect();
+      const rect = anchorInput.getBoundingClientRect();
       const dropdown = document.createElement('div');
       dropdown.className = 'lockeep-dropdown';
       // position:fixed → coordinates relative to viewport, no scroll offset needed
@@ -587,7 +646,7 @@ class LocKeepContentScript {
             }
           }
 
-          if (usernameInput) {
+          if (usernameInput && usernameInput !== passwordInput) {
             usernameInput.value = cred.username;
             usernameInput.dispatchEvent(new Event('input', { bubbles: true }));
             usernameInput.dispatchEvent(new Event('change', { bubbles: true }));
@@ -612,8 +671,8 @@ class LocKeepContentScript {
 
     // FIX: Listen to both 'focus' and 'click' — 'focus' alone misses the case
     // where the input is already focused when the page loads (e.g. autofocused inputs).
-    usernameInput.addEventListener('focus', showDropdown);
-    usernameInput.addEventListener('click', showDropdown);
+    anchorInput.addEventListener('focus', showDropdown);
+    anchorInput.addEventListener('click', showDropdown);
   }
 
   // ─── Generate Icon ─────────────────────────────────────────────────────────
@@ -637,8 +696,7 @@ class LocKeepContentScript {
     // Some SPAs pre-render hidden password fields (offsetWidth/Height = 0) that
     // would otherwise shift the indexOf check and suppress the icon on the real field.
     const getVisiblePassInputs = () => {
-      return Array.from(document.querySelectorAll('input[type="password"]'))
-        .filter(inp => inp.offsetParent !== null && inp.offsetWidth > 0 && inp.offsetHeight > 0);
+      return this.getVisiblePasswordInputs(document);
     };
 
     const allPassInputs = getVisiblePassInputs();
