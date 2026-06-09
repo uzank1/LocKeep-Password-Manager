@@ -209,10 +209,13 @@ app.whenReady().then(() => {
 
   // Initialize auto-lock with vault lock callback
   const settings = vaultManager.loadSettings();
+  const autoLockMinutes = typeof settings.autoLockMinutes === 'number'
+    ? settings.autoLockMinutes
+    : 5;
   autoLock.initialize(() => {
     vaultManager.lockVault();
     clipboardGuard.clearNow();
-  }, settings.autoLockMinutes || 5);
+  }, autoLockMinutes);
 
   // Create the main window
   createWindow();
