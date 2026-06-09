@@ -89,6 +89,15 @@ let _lastUsernameDomain = null;
 /** @type {number} Epoch timestamp (ms) of when _lastUsername was last set. Used for 15-min TTL. */
 let _lastUsernameTime = 0;
 
+/** @type {'signup'|'login'|null} Last detected multi-step auth flow mode. */
+let _authFlowMode = null;
+
+/** @type {string|null} Base domain where _authFlowMode was detected. */
+let _authFlowDomain = null;
+
+/** @type {number} Epoch timestamp (ms) of when _authFlowMode was set. */
+let _authFlowTime = 0;
+
 // ─── E2EE Cryptographic State ───────────────────────────────────────────────
 // These are populated during the ECDH handshake and cleared on port disconnect.
 
@@ -558,6 +567,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             _lastUsername = null;
             _lastUsernameDomain = null;
             _lastUsernameTime = 0;
+            _authFlowMode = null;
+            _authFlowDomain = null;
+            _authFlowTime = 0;
           }
           break;
         case 'SET_PENDING_SAVE':
@@ -618,7 +630,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           _lastUsername = null;
           _lastUsernameDomain = null;
           _lastUsernameTime = 0;
+          _authFlowMode = null;
+          _authFlowDomain = null;
+          _authFlowTime = 0;
           response = { success: true };
+          break;
+        case 'SET_AUTH_FLOW_MODE':
+          if (message.mode === 'signup' || message.mode === 'login') {
+            _authFlowMode = message.mode;
+            {
+              const origin = getEffectiveOrigin(sender, message.domain);
+              _authFlowDomain = getBaseDomain(origin || message.domain);
+            }
+            _authFlowTime = Date.now();
+            response = { success: true };
+          } else {
+            response = { success: false, error: 'Invalid auth flow mode' };
+          }
+          break;
+        case 'GET_AUTH_FLOW_MODE':
+          {
+            const origin = getSenderOrigin(sender);
+            const sameSite = !origin || sameBaseDomain(origin, _authFlowDomain);
+            if (_authFlowMode && sameSite && Date.now() - _authFlowTime < 15 * 60 * 1000) {
+              response = {
+                success: true,
+                mode: _authFlowMode,
+                domain: _authFlowDomain,
+                time: _authFlowTime
+              };
+            } else {
+              _authFlowMode = null;
+              _authFlowDomain = null;
+              _authFlowTime = 0;
+              response = { success: false, error: 'Expired or not set' };
+            }
+          }
           break;
         case 'GENERATE_PASSWORD':
           response = await sendNativeMessage('GENERATE_PASSWORD', message.options || {});

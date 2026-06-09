@@ -90,6 +90,10 @@ class LocKeepContentScript {
       username: '',
       password: ''
     };
+
+    /** Tracks multi-step registration flows whose password step appears later. */
+    this._authFlowMode = null;
+    this._authFlowModeTime = 0;
   }
 
   // ─── i18n (Internationalisation) ─────────────────────────────────────────
@@ -176,6 +180,8 @@ class LocKeepContentScript {
     // BUG-2 FIX: Resolve and cache language early so injectGenerateIcon can use
     // this._cachedLang synchronously without any async delay.
     await this.resolveLanguage();
+    await this.syncAuthFlowModeFromBackground();
+    this.captureAuthFlowContext();
 
     // BUG-1 FIX: Check for pending save BEFORE the early exit.
     try {
@@ -222,6 +228,7 @@ class LocKeepContentScript {
     document.addEventListener('input', (e) => {
       const target = e.target;
       if (target.tagName !== 'INPUT') return;
+      this.captureAuthFlowContext(target);
 
       const type = (target.type || '').toLowerCase();
       const name = (target.name || target.id || target.className || '').toLowerCase();
@@ -252,6 +259,10 @@ class LocKeepContentScript {
           }).catch(() => {});
         }
       }
+    }, true);
+
+    document.addEventListener('click', (e) => {
+      if (e && e.isTrusted) this.captureAuthFlowContext(e.target);
     }, true);
 
     // P-03: Early exit — if no password or email inputs exist yet, skip initial
@@ -351,6 +362,7 @@ class LocKeepContentScript {
       });
 
       if (!shouldReanalyze) return;
+      this.captureAuthFlowContext();
 
       // BUG-1 FIX: If the early-exit in init() fired before credentials were fetched,
       // fetch them now on the first mutation that shows us an input field.
@@ -409,6 +421,116 @@ class LocKeepContentScript {
     // rules for unrelated websites.
     if (this.isGoogleAccountsSignin()) return 'https://google.com';
     return window.location.origin;
+  }
+
+  getAuthFlowBaseDomain() {
+    return this.getBaseDomain(this.domain);
+  }
+
+  getAuthFlowSignalText(contextEl = null) {
+    const parts = [
+      window.location.href,
+      document.title,
+      document.body && document.body.getAttribute('aria-label')
+    ];
+
+    const addElementAttrs = (el) => {
+      if (!el || !el.getAttribute) return;
+      parts.push(
+        el.textContent,
+        el.value,
+        el.id,
+        el.name,
+        el.className,
+        el.getAttribute('action'),
+        el.getAttribute('aria-label'),
+        el.getAttribute('data-testid'),
+        el.getAttribute('data-test-id'),
+        el.getAttribute('data-cy')
+      );
+    };
+
+    addElementAttrs(contextEl);
+    const form = contextEl && contextEl.closest ? contextEl.closest('form') : null;
+    addElementAttrs(form);
+
+    if (form) {
+      const submitLike = form.querySelectorAll('button, input[type="submit"], input[type="button"], [role="button"]');
+      Array.from(submitLike).slice(0, 12).forEach(el => {
+        parts.push(el.textContent, el.value, el.getAttribute && el.getAttribute('aria-label'));
+      });
+    }
+
+    return parts.filter(Boolean).join(' ').toLowerCase();
+  }
+
+  hasSignupFlowSignal(contextEl = null) {
+    const text = this.getAuthFlowSignalText(contextEl);
+    const signupLike = /(signup|sign-up|sign_up|register|registration|create[-_\s]*account|new[-_\s]*account|join|kayit|kaydol|hesap[-_\s]*olustur)/i.test(text);
+    if (!signupLike) return false;
+
+    // A plain login page can contain a small "create account" link. Treat the
+    // signal as strong only when it is not merely paired with current-password
+    // or a known login challenge.
+    const isPasswordContext = contextEl &&
+      contextEl.tagName === 'INPUT' &&
+      (contextEl.type || '').toLowerCase() === 'password';
+    if (this.isGoogleAccountsSignin()) return false;
+    if (isPasswordContext && this.isKnownLoginPasswordStep(contextEl.closest('form') || document.body, contextEl)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  hasLoginFlowSignal(contextEl = null) {
+    if (this.isGoogleAccountsSignin()) return true;
+    if (contextEl && contextEl.getAttribute) {
+      const autocomplete = (contextEl.getAttribute('autocomplete') || '').toLowerCase();
+      if (autocomplete === 'current-password') return true;
+    }
+    return false;
+  }
+
+  isSignupFlowActive(maxAgeMs = 15 * 60 * 1000) {
+    return this._authFlowMode === 'signup' && Date.now() - this._authFlowModeTime < maxAgeMs;
+  }
+
+  setAuthFlowMode(mode) {
+    this._authFlowMode = mode;
+    this._authFlowModeTime = Date.now();
+    this.sendMessageToBackground({
+      type: 'SET_AUTH_FLOW_MODE',
+      mode,
+      domain: this.getAuthFlowBaseDomain()
+    }).catch(() => {});
+  }
+
+  async syncAuthFlowModeFromBackground() {
+    try {
+      const res = await this.sendMessageToBackground({ type: 'GET_AUTH_FLOW_MODE' });
+      if (
+        res &&
+        res.success &&
+        res.mode &&
+        this.getBaseDomain(res.domain) === this.getAuthFlowBaseDomain() &&
+        Date.now() - res.time < 15 * 60 * 1000
+      ) {
+        this._authFlowMode = res.mode;
+        this._authFlowModeTime = res.time;
+      }
+    } catch { /* keep local state */ }
+  }
+
+  captureAuthFlowContext(contextEl = null) {
+    if (this.hasLoginFlowSignal(contextEl)) {
+      this.setAuthFlowMode('login');
+      return;
+    }
+
+    if (this.hasSignupFlowSignal(contextEl)) {
+      this.setAuthFlowMode('signup');
+    }
   }
 
   hasRecentTrustedUserAction(maxAgeMs = 1500) {
@@ -571,6 +693,7 @@ class LocKeepContentScript {
       ? (passwordInput.getAttribute('autocomplete') || '').toLowerCase()
       : '';
     if (autocomplete === 'new-password') return true;
+    if (this.isSignupFlowActive()) return true;
 
     if (!form || form === document.body) {
       if (passwordInput) {
