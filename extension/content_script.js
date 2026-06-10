@@ -262,13 +262,13 @@ class LocKeepContentScript {
     }, true);
 
     document.addEventListener('click', (e) => {
-      if (e && e.isTrusted) this.captureAuthFlowContext(e.target);
+      if (e && e.isTrusted) this.captureAuthFlowContext(e.target, { fromClick: true });
     }, true);
 
     // P-03: Early exit — if no password or email inputs exist yet, skip initial
     // credential fetch and inject. The MutationObserver registered above will
     // trigger _fetchCredentials + analyzeAndInject once inputs arrive.
-    if (!document.querySelector('input[type="password"]') && !document.querySelector('input[type="email"]')) {
+    if (this.getPasswordInputs(document).length === 0 && !document.querySelector('input[type="email"]')) {
       return;
     }
 
@@ -427,18 +427,20 @@ class LocKeepContentScript {
     return this.getBaseDomain(this.domain);
   }
 
-  getAuthFlowSignalText(contextEl = null) {
+  getAuthFlowSignalText(contextEl = null, options = {}) {
+    const includeContextText = Boolean(options.fromClick);
     const parts = [
       window.location.href,
       document.title,
       document.body && document.body.getAttribute('aria-label')
     ];
 
-    const addElementAttrs = (el) => {
+    const addElementAttrs = (el, includeText = false) => {
       if (!el || !el.getAttribute) return;
+      if (includeText) {
+        parts.push(el.textContent, el.value);
+      }
       parts.push(
-        el.textContent,
-        el.value,
         el.id,
         el.name,
         el.className,
@@ -450,11 +452,11 @@ class LocKeepContentScript {
       );
     };
 
-    addElementAttrs(contextEl);
+    addElementAttrs(contextEl, includeContextText);
     const form = contextEl && contextEl.closest ? contextEl.closest('form') : null;
-    addElementAttrs(form);
+    addElementAttrs(form, false);
 
-    if (form) {
+    if (form && includeContextText) {
       const submitLike = form.querySelectorAll('button, input[type="submit"], input[type="button"], [role="button"]');
       Array.from(submitLike).slice(0, 12).forEach(el => {
         parts.push(el.textContent, el.value, el.getAttribute && el.getAttribute('aria-label'));
@@ -464,9 +466,9 @@ class LocKeepContentScript {
     return parts.filter(Boolean).join(' ').toLowerCase();
   }
 
-  hasSignupFlowSignal(contextEl = null) {
-    const text = this.getAuthFlowSignalText(contextEl);
-    const signupLike = /(signup|sign-up|sign_up|register|registration|create[-_\s]*account|new[-_\s]*account|join|kayit|kaydol|hesap[-_\s]*olustur)/i.test(text);
+  hasSignupFlowSignal(contextEl = null, options = {}) {
+    const text = this.getAuthFlowSignalText(contextEl, options);
+    const signupLike = /(signup|sign-up|sign_up|register|registration|create[-_\s]*account|new[-_\s]*account|join|kayit|kayıt|kaydol|hesab[ıi]?[-_\s]*olu[şs]tur|hesap[-_\s]*olu[şs]tur)/i.test(text);
     if (!signupLike) return false;
 
     // A plain login page can contain a small "create account" link. Treat the
@@ -522,13 +524,13 @@ class LocKeepContentScript {
     } catch { /* keep local state */ }
   }
 
-  captureAuthFlowContext(contextEl = null) {
+  captureAuthFlowContext(contextEl = null, options = {}) {
     if (this.hasLoginFlowSignal(contextEl)) {
       this.setAuthFlowMode('login');
       return;
     }
 
-    if (this.hasSignupFlowSignal(contextEl)) {
+    if (this.hasSignupFlowSignal(contextEl, options)) {
       this.setAuthFlowMode('signup');
     }
   }
@@ -588,8 +590,35 @@ class LocKeepContentScript {
     return rect.width > 0 && rect.height > 0;
   }
 
+  isPasswordLikeInput(input) {
+    if (!input || input.tagName !== 'INPUT') return false;
+
+    const type = (input.type || '').toLowerCase();
+    if (type === 'password') return true;
+    if (!['text', 'search', ''].includes(type)) return false;
+
+    const attrs = [
+      input.name,
+      input.id,
+      input.className,
+      input.placeholder,
+      input.getAttribute('aria-label'),
+      input.getAttribute('autocomplete'),
+      input.getAttribute('data-testid'),
+      input.getAttribute('data-test-id'),
+      input.getAttribute('data-cy')
+    ].filter(Boolean).join(' ').toLowerCase();
+
+    return /pass(word)?|parola|sifre|şifre/.test(attrs);
+  }
+
+  getPasswordInputs(scope = document) {
+    return Array.from(scope.querySelectorAll('input'))
+      .filter(input => this.isPasswordLikeInput(input));
+  }
+
   getVisiblePasswordInputs(scope = document) {
-    return Array.from(scope.querySelectorAll('input[type="password"]'))
+    return this.getPasswordInputs(scope)
       .filter(input => this.isInputVisible(input));
   }
 
@@ -627,32 +656,39 @@ class LocKeepContentScript {
   // ─── Core Analysis ─────────────────────────────────────────────────────────
 
   analyzeAndInject() {
-    const passwordInputs = Array.from(document.querySelectorAll('input[type="password"]'));
+    const passwordInputs = this.getPasswordInputs(document);
     if (DEBUG) console.log(`[DIAGNOSTIC - DOM] 1. Found Password Inputs:`, passwordInputs.length);
     if (passwordInputs.length === 0) return;
 
     passwordInputs.forEach(passInput => {
-      if (passInput.dataset.lockeepInjected) return;
-      passInput.dataset.lockeepInjected = 'true';
-
       const form = passInput.closest('form') || document.body;
       const usernameInput = this.findUsernameInput(form, passInput);
       const isSignup = this.isSignupForm(form, passInput);
       if (DEBUG) console.log(`[DIAGNOSTIC - DOM] 2. Form Analysis:`, { usernameInputFound: !!usernameInput, isSignup, credsCount: this.credentials?.length });
 
+<<<<<<< Updated upstream
       this.injectGenerateIcon(passInput);
+=======
+      const hasGenerateIcon = !!(passInput._lockeepIcon && document.body.contains(passInput._lockeepIcon));
+      const hasCredentials = Array.isArray(this.credentials) && this.credentials.length > 0;
+      const needsGenerateIcon = isSignup && !hasGenerateIcon;
+      const needsAutofill = !isSignup && hasCredentials && !passInput._lockeepAutofillSetup;
+      if (passInput.dataset.lockeepInjected && !needsGenerateIcon && !needsAutofill) return;
+      passInput.dataset.lockeepInjected = 'true';
+>>>>>>> Stashed changes
 
       if (isSignup) {
         // BUG-5 FIX: usernameInput is no longer passed — icon positioning is
         // purely relative to passwordInput via getSingleInputWrapper().
         this.injectGenerateIcon(passInput);
       } else {
-        if (Array.isArray(this.credentials) && this.credentials.length > 0) {
+        if (hasCredentials && !passInput._lockeepAutofillSetup) {
           // Multi-step login pages often remove the username field before
           // showing the password step. In that case, anchor the dropdown to
           // the password input without treating it as a username field.
           const autofillAnchor = usernameInput || passInput;
           this.setupAutofillDropdown(autofillAnchor, passInput, usernameInput);
+          passInput._lockeepAutofillSetup = true;
         }
       }
     });
@@ -689,13 +725,13 @@ class LocKeepContentScript {
    * @returns {boolean}
    */
   isSignupForm(form, passwordInput) {
-    if (this.isKnownLoginPasswordStep(form, passwordInput)) return false;
-
     const autocomplete = passwordInput
       ? (passwordInput.getAttribute('autocomplete') || '').toLowerCase()
       : '';
+    if (autocomplete === 'current-password' || this.isGoogleAccountsSignin()) return false;
     if (autocomplete === 'new-password') return true;
     if (this.isSignupFlowActive()) return true;
+    if (this.isKnownLoginPasswordStep(form, passwordInput)) return false;
 
     if (!form || form === document.body) {
       if (passwordInput) {
@@ -1006,7 +1042,7 @@ class LocKeepContentScript {
 
       // If values weren't pre-captured (native submit), read from DOM
       if (password === undefined) {
-        const passwordInput = formElement.querySelector('input[type="password"]');
+        const passwordInput = this.getPasswordInputs(formElement)[0];
         if (!passwordInput || !passwordInput.value) return;
         password = passwordInput.value;
         const usernameInput = this.findUsernameInput(formElement, passwordInput);
@@ -1087,7 +1123,7 @@ class LocKeepContentScript {
 
       if (isSubmitType || isLoginOrRegister) {
         const form = btn.closest('form') || document.body;
-        const passwordInput = form.querySelector('input[type="password"]');
+        const passwordInput = this.getPasswordInputs(form)[0];
         if (!passwordInput || !passwordInput.value) return;
         const capturedPassword = passwordInput.value;
         const usernameInput = this.findUsernameInput(form, passwordInput);
