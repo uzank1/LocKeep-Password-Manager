@@ -36,7 +36,11 @@ function install() {
     const hostScript = path.join(app.getAppPath(), 'src', 'native-host', 'host.js');
     const batWrapper = path.join(appDataDir, 'native-host.bat');
     const nodePath = process.execPath;
-    fs.writeFileSync(batWrapper, `@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\n"${nodePath}" "${hostScript}" %*\r\n`, 'utf-8');
+    fs.writeFileSync(
+      batWrapper,
+      `@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\n"${nodePath}" "${hostScript}" --lockeep-native-host %*\r\n`,
+      'utf-8'
+    );
 
     // 2. Write manifest JSON
     const manifestPath = path.join(appDataDir, `${HOST_NAME}.json`);

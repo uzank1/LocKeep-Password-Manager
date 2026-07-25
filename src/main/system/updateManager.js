@@ -11,12 +11,15 @@ function createUpdateManager({
   setTimeoutFn = setTimeout,
   clearTimeoutFn = clearTimeout,
   setIntervalFn = setInterval,
-  clearIntervalFn = clearInterval
+  clearIntervalFn = clearInterval,
+  prepareForInstall = async () => {},
+  cancelInstallPreparation = () => {}
 }) {
   let initialized = false;
   let checkingPromise = null;
   let lastCheckWasManual = false;
   let installRequested = false;
+  let installStarting = false;
   let initialCheckTimer = null;
   let periodicCheckTimer = null;
 
@@ -126,7 +129,9 @@ function createUpdateManager({
       });
 
       if (installRequested) {
-        setTimeoutFn(() => updater.quitAndInstall(false, true), 500);
+        setTimeoutFn(() => {
+          startDownloadedInstall().catch(() => {});
+        }, 500);
       }
     });
 
@@ -139,7 +144,32 @@ function createUpdateManager({
         progress: 0,
         error: lastCheckWasManual || installRequested ? message : null
       });
+      installRequested = false;
+      installStarting = false;
+      Promise.resolve(cancelInstallPreparation()).catch(() => {});
     });
+  }
+
+  async function startDownloadedInstall() {
+    if (!installRequested || installStarting) return;
+    installStarting = true;
+
+    try {
+      await prepareForInstall();
+      updater.quitAndInstall(true, true);
+    } catch (error) {
+      installRequested = false;
+      installStarting = false;
+      await Promise.resolve(cancelInstallPreparation()).catch(() => {});
+      const message = error && error.message
+        ? error.message
+        : 'Update installation could not be started.';
+      setState({
+        status: 'error',
+        progress: 0,
+        error: message
+      });
+    }
   }
 
   function initialize({ automaticChecks = true } = {}) {
@@ -220,6 +250,7 @@ function createUpdateManager({
     }
 
     installRequested = true;
+    installStarting = false;
     setState({ status: 'downloading', progress: 0, error: null });
 
     try {
@@ -227,6 +258,7 @@ function createUpdateManager({
       return { success: true, state: getState() };
     } catch (error) {
       installRequested = false;
+      installStarting = false;
       const message = error && error.message
         ? error.message
         : 'Update download failed.';
@@ -274,11 +306,14 @@ function getDefaultManager() {
     const { app, BrowserWindow } = require('electron');
     const { autoUpdater } = require('electron-updater');
     const vaultManager = require('../vault/vaultManager');
+    const updateInstallGuard = require('./updateInstallGuard');
     defaultManager = createUpdateManager({
       electronApp: app,
       updater: autoUpdater,
       settingsStore: vaultManager,
-      getWindows: () => BrowserWindow.getAllWindows()
+      getWindows: () => BrowserWindow.getAllWindows(),
+      prepareForInstall: () => updateInstallGuard.prepare(),
+      cancelInstallPreparation: () => updateInstallGuard.release()
     });
   }
   return defaultManager;

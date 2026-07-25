@@ -35,6 +35,14 @@ const APP_DATA_DIR = path.join(
 );
 const PORT_FILE = path.join(APP_DATA_DIR, '.ipc-port');
 const TOKEN_FILE = path.join(APP_DATA_DIR, '.ipc-token');
+const UPDATE_LOCK_FILE = path.join(APP_DATA_DIR, '.update-in-progress');
+
+// During an application update the installed Electron executable must be
+// replaceable. Exit immediately so an open browser cannot respawn this helper
+// process while the installer is working.
+if (fs.existsSync(UPDATE_LOCK_FILE)) {
+  process.exit(0);
+}
 
 // H-02: HKDF info string for domain separation
 const HKDF_INFO = 'lockeep-e2ee-v1';

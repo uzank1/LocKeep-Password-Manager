@@ -12,6 +12,14 @@ const { createUpdateManager } = require(path.join(
   'system',
   'updateManager'
 ));
+const { createUpdateInstallGuard } = require(path.join(
+  __dirname,
+  '..',
+  'src',
+  'main',
+  'system',
+  'updateInstallGuard'
+));
 
 let passed = 0;
 let failed = 0;
@@ -33,7 +41,8 @@ function createHarness({
   availableVersion = '1.0.4',
   updateAvailable = true,
   initialSettings = {},
-  vaultExists = true
+  vaultExists = true,
+  prepareForInstall = async () => {}
 } = {}) {
   const updater = new EventEmitter();
   const quitCalls = [];
@@ -75,7 +84,8 @@ function createHarness({
     },
     clearTimeoutFn: () => {},
     setIntervalFn: () => 1,
-    clearIntervalFn: () => {}
+    clearIntervalFn: () => {},
+    prepareForInstall
   });
 
   return {
@@ -130,11 +140,71 @@ async function run() {
     assert.strictEqual(checkResult.state.availableVersion, '1.0.4');
 
     const installResult = await harness.manager.downloadAndInstall();
+    await new Promise(resolve => setImmediate(resolve));
 
     assert.strictEqual(installResult.success, true);
     assert.strictEqual(installResult.state.status, 'downloaded');
     assert.strictEqual(harness.getSettings().pendingUpdateVersion, '1.0.4');
-    assert.deepStrictEqual(harness.quitCalls, [[false, true]]);
+    assert.deepStrictEqual(harness.quitCalls, [[true, true]]);
+  });
+
+  await check('Native messaging is released before the silent installer starts', async () => {
+    const order = [];
+    const harness = createHarness({
+      vaultExists: false,
+      prepareForInstall: async () => {
+        order.push('prepare');
+      }
+    });
+    harness.updater.quitAndInstall = (...args) => {
+      order.push('install');
+      harness.quitCalls.push(args);
+    };
+    harness.manager.initialize({ automaticChecks: false });
+
+    await harness.manager.checkForUpdates(true);
+    await harness.manager.downloadAndInstall();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.deepStrictEqual(order, ['prepare', 'install']);
+    assert.deepStrictEqual(harness.quitCalls, [[true, true]]);
+  });
+
+  await check('Windows update guard blocks and stops native messaging hosts', async () => {
+    const fsCalls = [];
+    let powershellCall = null;
+    const guard = createUpdateInstallGuard({
+      platform: 'win32',
+      appDataDir: 'C:\\Users\\Test\\AppData\\Roaming\\LocKeepPasswordManager',
+      executablePath: 'C:\\Program Files\\LocKeep\\LocKeepPasswordManager.exe',
+      currentPid: 321,
+      fsImpl: {
+        mkdirSync: (...args) => fsCalls.push(['mkdir', ...args]),
+        writeFileSync: (...args) => fsCalls.push(['write', ...args]),
+        unlinkSync: (...args) => fsCalls.push(['unlink', ...args])
+      },
+      execFileFn: (file, args, options, callback) => {
+        powershellCall = { file, args, options };
+        callback(null, '', '');
+      },
+      logger: { warn: () => {} }
+    });
+
+    await guard.prepare();
+    guard.release();
+
+    assert.strictEqual(fsCalls[0][0], 'mkdir');
+    assert.strictEqual(fsCalls[1][0], 'write');
+    assert.strictEqual(fsCalls[1][1], guard.lockPath);
+    assert.strictEqual(fsCalls[2][0], 'unlink');
+    assert.strictEqual(fsCalls[2][1], guard.lockPath);
+    assert.strictEqual(powershellCall.file, 'powershell.exe');
+    assert.strictEqual(
+      powershellCall.options.env.LOCKEEP_EXECUTABLE_PATH,
+      'C:\\Program Files\\LocKeep\\LocKeepPasswordManager.exe'
+    );
+    assert.strictEqual(powershellCall.options.env.LOCKEEP_CURRENT_PID, '321');
+    assert.ok(powershellCall.args.join(' ').includes('--lockeep-native-host'));
   });
 
   await check('Extension reload notice is shown only once for each installed version', async () => {

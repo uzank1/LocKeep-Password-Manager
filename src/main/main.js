@@ -26,6 +26,7 @@ const clipboardGuard = require('./security/clipboardGuard');
 const vaultManager = require('./vault/vaultManager');
 const startupManager = require('./system/startupManager');
 const updateManager = require('./system/updateManager');
+const updateInstallGuard = require('./system/updateInstallGuard');
 const { startServer: startIPCServer, stopServer: stopIPCServer } = require('./nativeMessaging/nativeHost');
 
 // ─── Single Instance Lock ───────────────────────────────────────────────────
@@ -216,9 +217,15 @@ app.whenReady().then(() => {
   registrySetup.install();
 
   // Start IPC server for native messaging host communication
-  startIPCServer().catch(err => {
-    console.error('[IPC Server] Failed to start:', err.message);
-  });
+  startIPCServer()
+    .then(() => {
+      // A successful restart completes the update hand-off. Native messaging
+      // can now reconnect without keeping the installer files open.
+      updateInstallGuard.release();
+    })
+    .catch(err => {
+      console.error('[IPC Server] Failed to start:', err.message);
+    });
 
   // Initialize auto-lock with vault lock callback
   const settings = vaultManager.loadSettings();
