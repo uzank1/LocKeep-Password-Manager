@@ -98,6 +98,8 @@
     "startup": "Autostart",
     "startWithWindows": "Mit Windows starten",
     "startWithWindowsDescription": "LocKeep bei der Windows-Anmeldung automatisch starten.",
+    "startupUpdateFailed": "Die Windows-Autostart-Einstellung konnte nicht aktualisiert werden.",
+    "startupUnsupported": "Autostart ist nur unter Windows verfügbar.",
     "vaultLocation": "Tresor-Speicherort",
     "currentPath": "Aktueller Pfad",
     "changePath": "Speicherort ändern",

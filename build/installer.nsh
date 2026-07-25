@@ -29,4 +29,5 @@
 
 !macro customUnInstall
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "LocKeepPasswordManager"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run" "LocKeepPasswordManager"
 !macroend

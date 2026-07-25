@@ -98,6 +98,8 @@
     "startup": "Startup",
     "startWithWindows": "Start with Windows",
     "startWithWindowsDescription": "Open LocKeep automatically when you sign in to Windows.",
+    "startupUpdateFailed": "The Windows startup setting could not be updated.",
+    "startupUnsupported": "Start with Windows is only available on Windows.",
     "vaultLocation": "Vault Location",
     "currentPath": "Current path",
     "changePath": "Change Location",

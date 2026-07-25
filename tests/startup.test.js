@@ -3,7 +3,11 @@
 const assert = require('assert');
 const path = require('path');
 
-const { createStartupManager } = require(path.join(
+const {
+  createStartupManager,
+  createWindowsRunRegistry,
+  formatExecutableCommand
+} = require(path.join(
   __dirname,
   '..',
   'src',
@@ -27,7 +31,7 @@ function check(testName, testFn) {
   }
 }
 
-function createElectronAppStub({ isPackaged = true } = {}) {
+function createElectronAppStub({ isPackaged = true, ignoreWrites = false } = {}) {
   let startupEnabled = false;
   const calls = [];
 
@@ -36,13 +40,34 @@ function createElectronAppStub({ isPackaged = true } = {}) {
       isPackaged,
       setLoginItemSettings(options) {
         calls.push(options);
-        startupEnabled = Boolean(options.openAtLogin && options.enabled);
+        if (!ignoreWrites) {
+          startupEnabled = Boolean(options.openAtLogin && options.enabled);
+        }
       },
       getLoginItemSettings() {
         return {
           openAtLogin: startupEnabled,
           executableWillLaunchAtLogin: startupEnabled
         };
+      }
+    },
+    calls
+  };
+}
+
+function createRegistryStub({ writeSucceeds = true } = {}) {
+  let enabled = false;
+  const calls = [];
+
+  return {
+    registry: {
+      getEnabled() {
+        return enabled;
+      },
+      setEnabled(name, executablePath, requestedState) {
+        calls.push({ name, executablePath, enabled: requestedState });
+        if (writeSucceeds) enabled = requestedState;
+        return writeSucceeds;
       }
     },
     calls
@@ -108,6 +133,77 @@ check('Development mode never registers electron.exe', () => {
 
   assert.deepStrictEqual(result, { success: true, enabled: true });
   assert.strictEqual(stub.calls.length, 0);
+});
+
+check('Registry fallback handles Electron login item write failures', () => {
+  const stub = createElectronAppStub({ ignoreWrites: true });
+  const registryStub = createRegistryStub();
+  const executablePath = 'C:\\Program Files\\LocKeep\\LocKeepPasswordManager.exe';
+  const manager = createStartupManager({
+    electronApp: stub.app,
+    platform: 'win32',
+    executablePath,
+    windowsRegistry: registryStub.registry
+  });
+
+  const result = manager.setEnabled(true);
+
+  assert.deepStrictEqual(result, { success: true, enabled: true });
+  assert.deepStrictEqual(registryStub.calls, [{
+    name: 'LocKeepPasswordManager',
+    executablePath,
+    enabled: true
+  }]);
+});
+
+check('Startup errors return a localizable message key', () => {
+  const stub = createElectronAppStub({ ignoreWrites: true });
+  const registryStub = createRegistryStub({ writeSucceeds: false });
+  const manager = createStartupManager({
+    electronApp: stub.app,
+    platform: 'win32',
+    windowsRegistry: registryStub.registry
+  });
+
+  const result = manager.setEnabled(true);
+
+  assert.strictEqual(result.success, false);
+  assert.strictEqual(result.messageKey, 'settings.startupUpdateFailed');
+});
+
+check('Windows registry fallback writes a quoted executable command', () => {
+  const values = new Map();
+  const calls = [];
+  const runRegistry = args => {
+    calls.push(args);
+    const operation = args[0];
+    const key = args[1];
+    const name = args[3];
+    const valueKey = `${key}:${name}`;
+
+    if (operation === 'ADD') {
+      values.set(valueKey, { type: 'REG_SZ', value: args[7] });
+      return { status: 0, stdout: '' };
+    }
+    if (operation === 'DELETE') {
+      const existed = values.delete(valueKey);
+      return { status: existed ? 0 : 1, stdout: '' };
+    }
+    if (operation === 'QUERY') {
+      const entry = values.get(valueKey);
+      return entry
+        ? { status: 0, stdout: `    ${name}    ${entry.type}    ${entry.value}\r\n` }
+        : { status: 1, stdout: '' };
+    }
+    return { status: 1, stdout: '' };
+  };
+  const executablePath = 'C:\\Program Files\\LocKeep\\LocKeepPasswordManager.exe';
+  const registry = createWindowsRunRegistry({ runRegistry });
+
+  assert.strictEqual(registry.setEnabled('LocKeepPasswordManager', executablePath, true), true);
+  assert.strictEqual(registry.getEnabled('LocKeepPasswordManager', executablePath), true);
+  assert.strictEqual(formatExecutableCommand(executablePath), `"${executablePath}"`);
+  assert.ok(calls.some(args => args[0] === 'ADD' && args[7] === `"${executablePath}"`));
 });
 
 console.log(`\nResults: ${passed} passed, ${failed} failed\n`);

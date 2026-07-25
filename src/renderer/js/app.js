@@ -694,7 +694,8 @@ async function handleStartWithWindowsChange(e) {
       checkbox.checked = result && typeof result.enabled === 'boolean'
         ? result.enabled
         : !requestedState;
-      showToast((result && result.message) || I18n.t('common.error'), 'error');
+      const messageKey = result && result.messageKey;
+      showToast(messageKey ? I18n.t(messageKey) : I18n.t('settings.startupUpdateFailed'), 'error');
       return;
     }
 
@@ -702,7 +703,7 @@ async function handleStartWithWindowsChange(e) {
     showToast(I18n.t('common.success'), 'success');
   } catch {
     checkbox.checked = !requestedState;
-    showToast(I18n.t('common.error'), 'error');
+    showToast(I18n.t('settings.startupUpdateFailed'), 'error');
   } finally {
     checkbox.disabled = false;
   }
