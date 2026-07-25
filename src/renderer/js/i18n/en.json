@@ -95,6 +95,9 @@
       "15": "15 Minutes",
       "0": "Never"
     },
+    "startup": "Startup",
+    "startWithWindows": "Start with Windows",
+    "startWithWindowsDescription": "Open LocKeep automatically when you sign in to Windows.",
     "vaultLocation": "Vault Location",
     "currentPath": "Current path",
     "changePath": "Change Location",

@@ -63,6 +63,7 @@ contextBridge.exposeInMainWorld('vault', {
   // ── Settings ────────────────────────────────────────────────────────────
   getSettings:       ()           => ipcRenderer.invoke('settings:get'),
   saveSettings:      (settings)   => ipcRenderer.invoke('settings:save', settings),
+  setStartWithWindows:(enabled)    => ipcRenderer.invoke('settings:setStartWithWindows', enabled),
   setVaultPath:      ()           => ipcRenderer.invoke('settings:setVaultPath'),
   resetVaultPath:    ()           => ipcRenderer.invoke('settings:resetVaultPath'),
 

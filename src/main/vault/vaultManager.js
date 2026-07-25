@@ -167,6 +167,10 @@ function _sanitizeSettings(settings) {
     clean.autoLockMinutes = settings.autoLockMinutes;
   }
 
+  if (_settingsHasOwn(settings, 'startWithWindows') && typeof settings.startWithWindows === 'boolean') {
+    clean.startWithWindows = settings.startWithWindows;
+  }
+
   if (_settingsHasOwn(settings, 'vaultPath')) {
     if (settings.vaultPath === null) {
       clean.vaultPath = null;

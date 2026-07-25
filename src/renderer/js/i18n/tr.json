@@ -95,6 +95,9 @@
       "15": "15 Dakika",
       "0": "Asla"
     },
+    "startup": "Başlangıç",
+    "startWithWindows": "Windows ile birlikte başlat",
+    "startWithWindowsDescription": "Windows oturumu açıldığında LocKeep'i otomatik olarak başlatır.",
     "vaultLocation": "Kasa Konumu",
     "currentPath": "Mevcut konum",
     "changePath": "Konumu Değiştir",

@@ -577,6 +577,32 @@ textarea { resize: vertical; min-height: 80px; }
 .setting-row label { font-size: var(--font-base); color: var(--text-secondary); }
 .setting-row select, .setting-row input { width: 180px; }
 
+.setting-copy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 0;
+  padding-right: var(--space-lg);
+}
+
+.setting-copy span {
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+}
+
+.setting-row .setting-checkbox {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  accent-color: var(--accent-primary);
+  cursor: pointer;
+}
+
+.setting-row .setting-checkbox:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
 /* ─── Import / Export ───────────────────────────────────────────────────── */
 .ie-card {
   padding: var(--space-2xl);

@@ -1,6 +1,6 @@
 {
   "name": "lockeep-password-manager",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "LocKeep — Strictly Offline, Zero-Knowledge Password Manager",
   "main": "src/main/main.js",
   "author": {
@@ -11,9 +11,11 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "test": "npm run test:crypto && npm run test:vault",
+    "test": "npm run test:crypto && npm run test:vault && npm run test:content && npm run test:startup",
     "test:crypto": "node tests/crypto.test.js",
     "test:vault": "node tests/vault.test.js",
+    "test:content": "node tests/content-script.test.js",
+    "test:startup": "node tests/startup.test.js",
     "install-native-host": "node scripts/install-native-host.js",
     "dist": "electron-builder --config electron-builder.yml",
     "build": "npm run dist"

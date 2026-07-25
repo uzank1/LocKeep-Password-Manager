@@ -129,6 +129,7 @@ function setupEventListeners() {
   if (lockLanguageSelect) lockLanguageSelect.addEventListener('change', handleLanguageChange);
   $('#language-select').addEventListener('change', handleLanguageChange);
   $('#autolock-select').addEventListener('change', handleAutoLockChange);
+  $('#start-with-windows-checkbox').addEventListener('change', handleStartWithWindowsChange);
   $('#change-vault-path-btn').addEventListener('click', handleChangeVaultPath);
   $('#reset-vault-path-btn').addEventListener('click', handleResetVaultPath);
   $('#change-pw-btn').addEventListener('click', handleChangeMasterPassword);
@@ -647,6 +648,7 @@ async function loadSettings() {
   if (settings.autoLockMinutes !== undefined) {
     $('#autolock-select').value = String(settings.autoLockMinutes);
   }
+  $('#start-with-windows-checkbox').checked = settings.startWithWindows !== false;
   const vaultPath = settings.vaultPath || '%APPDATA%/LocKeepPasswordManager/vault.dat';
   $('#vault-path-display').textContent = vaultPath;
 }
@@ -655,6 +657,31 @@ async function handleAutoLockChange(e) {
   const minutes = parseInt(e.target.value, 10);
   await vault.setAutoLockTimeout(minutes);
   showToast(I18n.t('common.success'), 'success');
+}
+
+async function handleStartWithWindowsChange(e) {
+  const checkbox = e.target;
+  const requestedState = checkbox.checked;
+  checkbox.disabled = true;
+
+  try {
+    const result = await vault.setStartWithWindows(requestedState);
+    if (!result || !result.success) {
+      checkbox.checked = result && typeof result.enabled === 'boolean'
+        ? result.enabled
+        : !requestedState;
+      showToast((result && result.message) || I18n.t('common.error'), 'error');
+      return;
+    }
+
+    checkbox.checked = result.enabled;
+    showToast(I18n.t('common.success'), 'success');
+  } catch {
+    checkbox.checked = !requestedState;
+    showToast(I18n.t('common.error'), 'error');
+  } finally {
+    checkbox.disabled = false;
+  }
 }
 
 async function handleChangeVaultPath() {

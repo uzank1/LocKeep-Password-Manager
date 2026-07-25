@@ -26,3 +26,7 @@
 
   RMDir /r "$0"
 !macroend
+
+!macro customUnInstall
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "LocKeepPasswordManager"
+!macroend

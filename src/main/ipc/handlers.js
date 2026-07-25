@@ -22,6 +22,7 @@ const importExport = require('../vault/importExport');
 const passwordGenerator = require('../vault/passwordGenerator');
 const clipboardGuard = require('../security/clipboardGuard');
 const autoLock = require('../security/autoLock');
+const startupManager = require('../system/startupManager');
 
 // Security helper: strict string input validation filter
 function isSafeString(input, maxLength) {
@@ -353,12 +354,29 @@ function registerAllHandlers() {
   // ── Settings ──────────────────────────────────────────────────────────
 
   ipcMain.handle('settings:get', () => {
-    return vaultManager.loadSettings();
+    const settings = vaultManager.loadSettings();
+    const preferredStartup = settings.startWithWindows !== false;
+    return {
+      ...settings,
+      startWithWindows: startupManager.getEnabled(preferredStartup)
+    };
   });
 
   ipcMain.handle('settings:save', (_event, settings) => {
     vaultManager.saveSettings(settings);
     return { success: true };
+  });
+
+  ipcMain.handle('settings:setStartWithWindows', (_event, enabled) => {
+    if (typeof enabled !== 'boolean') {
+      return { success: false, enabled: false, message: 'Invalid startup setting.' };
+    }
+
+    const result = startupManager.setEnabled(enabled);
+    if (result.success) {
+      vaultManager.saveSettings({ startWithWindows: result.enabled });
+    }
+    return result;
   });
 
   ipcMain.handle('settings:setVaultPath', async () => {

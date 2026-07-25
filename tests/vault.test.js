@@ -60,12 +60,14 @@ async function runTests() {
   vaultManager.saveSettings({
     language: 'tr',
     autoLockMinutes: 5,
+    startWithWindows: true,
     injected: { shouldNotPersist: true }
   });
   const cleanSettings = vaultManager.loadSettings();
   check(
     cleanSettings.language === 'tr'
       && cleanSettings.autoLockMinutes === 5
+      && cleanSettings.startWithWindows === true
       && cleanSettings.vaultPath === vaultPath
       && !Object.prototype.hasOwnProperty.call(cleanSettings, 'injected'),
     'Settings keep only the supported persisted fields'
@@ -74,14 +76,22 @@ async function runTests() {
   vaultManager.saveSettings({
     language: 'fr',
     autoLockMinutes: 999,
+    startWithWindows: 'yes',
     injected: 'still blocked'
   });
   const ignoredSettings = vaultManager.loadSettings();
   check(
     ignoredSettings.language === 'tr'
       && ignoredSettings.autoLockMinutes === 5
+      && ignoredSettings.startWithWindows === true
       && !Object.prototype.hasOwnProperty.call(ignoredSettings, 'injected'),
     'Invalid settings updates are ignored without clobbering valid values'
+  );
+
+  vaultManager.saveSettings({ startWithWindows: false });
+  check(
+    vaultManager.loadSettings().startWithWindows === false,
+    'Windows startup preference can be disabled'
   );
 
   const weakResult = await vaultManager.createVault('weak');

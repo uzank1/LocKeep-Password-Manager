@@ -285,27 +285,49 @@ class LocKeepContentScript {
    */
   async _fetchCredentials() {
     try {
-      const lookupOrigin = this.getCredentialLookupOrigin();
-      const baseDomain = this.getBaseDomain(lookupOrigin);
-      if (DEBUG) console.log(`[DIAGNOSTIC - Content] 1. Requesting credentials for origin: "${lookupOrigin}", baseDomain: "${baseDomain}"`);
-      const response = await this.sendMessageToBackground({
-        type: 'SEARCH_DOMAIN',
-        domain: lookupOrigin,
-        baseDomain: baseDomain
-      });
-      if (DEBUG) console.log(`[DIAGNOSTIC - Content] 2. Raw Response from Background:`, response);
-      if (response && response.success && response.data && Array.isArray(response.data.entries)) {
+      const lookupOrigins = this.getCredentialLookupOrigins();
+      this.credentials = [];
+
+      for (const lookupOrigin of lookupOrigins) {
+        const baseDomain = this.getBaseDomain(lookupOrigin);
+        if (DEBUG) console.log(`[DIAGNOSTIC - Content] 1. Requesting credentials for origin: "${lookupOrigin}", baseDomain: "${baseDomain}"`);
+        const response = await this.sendMessageToBackground({
+          type: 'SEARCH_DOMAIN',
+          domain: lookupOrigin,
+          baseDomain: baseDomain
+        });
+        if (DEBUG) console.log(`[DIAGNOSTIC - Content] 2. Raw Response from Background:`, response);
+        if (!response || !response.success || !response.data || !Array.isArray(response.data.entries)) {
+          continue;
+        }
+
         if (DEBUG) console.log("LocKeep: Data received for UI:", response.data.entries);
-        this.credentials = response.data.entries.filter(entry => {
+        const uniqueEntries = this.dedupeCredentials(response.data.entries);
+        if (this.isGoogleAccountsSignin() && lookupOrigin === window.location.origin) {
+          const exactHost = window.location.hostname.toLowerCase();
+          const exactHostEntries = uniqueEntries.filter(entry =>
+            this.getCredentialEntryHost(entry) === exactHost
+          );
+          if (exactHostEntries.length > 0) {
+            this.credentials = exactHostEntries;
+            break;
+          }
+
+          // Parent-domain entries can be included in an exact-host query by
+          // the vault's safe subdomain matching. Ignore them here so the next
+          // lookup can perform the intentional Google compatibility fallback.
+          continue;
+        }
+
+        const domainMatches = uniqueEntries.filter(entry => {
           const entryDomain = entry.domain || entry.url || '';
           return this.getBaseDomain(entryDomain) === baseDomain;
         });
-        // If backend already filtered (filter zeroed out), use all entries
-        if (this.credentials.length === 0) {
-          this.credentials = response.data.entries;
-        }
-      } else {
-        this.credentials = [];
+
+        // If the backend already applied a stricter origin filter, keep its
+        // result instead of discarding it because of a missing legacy field.
+        this.credentials = domainMatches.length > 0 ? domainMatches : uniqueEntries;
+        if (this.credentials.length > 0) break;
       }
     } catch (e) {
       this.credentials = [];
@@ -421,6 +443,42 @@ class LocKeepContentScript {
     // rules for unrelated websites.
     if (this.isGoogleAccountsSignin()) return 'https://google.com';
     return window.location.origin;
+  }
+
+  getCredentialLookupOrigins() {
+    const fallbackOrigin = this.getCredentialLookupOrigin();
+    if (!this.isGoogleAccountsSignin()) return [fallbackOrigin];
+
+    // Prefer credentials saved for the actual Google sign-in host. Only use
+    // the parent-domain lookup when no exact-host entry exists, which keeps
+    // accounts.google.com and mail.google.com copies out of the same dropdown.
+    const exactOrigin = window.location.origin;
+    return exactOrigin === fallbackOrigin
+      ? [exactOrigin]
+      : [exactOrigin, fallbackOrigin];
+  }
+
+  getCredentialEntryHost(entry) {
+    const value = entry && (entry.domain || entry.url);
+    if (!value || typeof value !== 'string') return '';
+    try {
+      return new URL(value.includes('://') ? value : `https://${value}`).hostname.toLowerCase();
+    } catch {
+      return value.toLowerCase().replace(/^https?:\/\//, '').split(/[/?#]/)[0];
+    }
+  }
+
+  dedupeCredentials(entries) {
+    const seen = new Set();
+    return (Array.isArray(entries) ? entries : []).filter(entry => {
+      if (!entry || typeof entry !== 'object') return false;
+      const key = entry.id
+        ? `id:${entry.id}`
+        : `row:${entry.username || ''}\u0000${entry.title || ''}\u0000${entry.url || entry.domain || ''}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   }
 
   getAuthFlowBaseDomain() {
@@ -666,16 +724,12 @@ class LocKeepContentScript {
       const isSignup = this.isSignupForm(form, passInput);
       if (DEBUG) console.log(`[DIAGNOSTIC - DOM] 2. Form Analysis:`, { usernameInputFound: !!usernameInput, isSignup, credsCount: this.credentials?.length });
 
-<<<<<<< Updated upstream
-      this.injectGenerateIcon(passInput);
-=======
       const hasGenerateIcon = !!(passInput._lockeepIcon && document.body.contains(passInput._lockeepIcon));
       const hasCredentials = Array.isArray(this.credentials) && this.credentials.length > 0;
       const needsGenerateIcon = isSignup && !hasGenerateIcon;
       const needsAutofill = !isSignup && hasCredentials && !passInput._lockeepAutofillSetup;
       if (passInput.dataset.lockeepInjected && !needsGenerateIcon && !needsAutofill) return;
       passInput.dataset.lockeepInjected = 'true';
->>>>>>> Stashed changes
 
       if (isSignup) {
         // BUG-5 FIX: usernameInput is no longer passed — icon positioning is
@@ -1254,9 +1308,16 @@ class LocKeepContentScript {
   }
 }
 
-// Initialize script
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => new LocKeepContentScript().init());
-} else {
-  new LocKeepContentScript().init();
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = LocKeepContentScript;
+}
+
+// Initialize script in the browser. The document guard also allows the class to
+// be loaded by the Node-based regression tests without starting the extension.
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => new LocKeepContentScript().init());
+  } else {
+    new LocKeepContentScript().init();
+  }
 }

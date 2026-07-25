@@ -24,6 +24,7 @@ const { registerAllHandlers } = require('./ipc/handlers');
 const autoLock = require('./security/autoLock');
 const clipboardGuard = require('./security/clipboardGuard');
 const vaultManager = require('./vault/vaultManager');
+const startupManager = require('./system/startupManager');
 const { startServer: startIPCServer, stopServer: stopIPCServer } = require('./nativeMessaging/nativeHost');
 
 // ─── Single Instance Lock ───────────────────────────────────────────────────
@@ -173,6 +174,17 @@ app.whenReady().then(() => {
 
   // Initialize vault settings (load custom vault path if set)
   vaultManager.initializeFromSettings();
+
+  // New installations start with Windows by default. Once the preference has
+  // been saved, later launches respect both the checkbox and Windows' own
+  // Startup Apps control instead of force-enabling it again.
+  const initialSettings = vaultManager.loadSettings();
+  if (!Object.prototype.hasOwnProperty.call(initialSettings, 'startWithWindows')) {
+    const startupResult = startupManager.setEnabled(true);
+    vaultManager.saveSettings({
+      startWithWindows: startupResult.success && startupResult.enabled
+    });
+  }
 
   // Register all IPC handlers
   registerAllHandlers();
