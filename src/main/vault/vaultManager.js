@@ -64,6 +64,7 @@ const MAX_BULK_IMPORT_ENTRIES = 10000;
 const VALID_SETTING_LANGUAGES = new Set(['en', 'de', 'tr']);
 const VALID_AUTO_LOCK_MINUTES = new Set([0, 1, 5, 15]);
 const MAX_VAULT_PATH_LENGTH = 4096;
+const MAX_VERSION_SETTING_LENGTH = 64;
 
 // ─── Module State (private) ─────────────────────────────────────────────────
 
@@ -152,6 +153,15 @@ function _settingsHasOwn(value, key) {
   return Object.prototype.hasOwnProperty.call(value || {}, key);
 }
 
+function _isValidVersionSetting(value) {
+  return (
+    typeof value === 'string'
+    && value.length > 0
+    && value.length <= MAX_VERSION_SETTING_LENGTH
+    && /^[0-9A-Za-z][0-9A-Za-z.+-]*$/.test(value)
+  );
+}
+
 function _sanitizeSettings(settings) {
   if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
     return {};
@@ -169,6 +179,20 @@ function _sanitizeSettings(settings) {
 
   if (_settingsHasOwn(settings, 'startWithWindows') && typeof settings.startWithWindows === 'boolean') {
     clean.startWithWindows = settings.startWithWindows;
+  }
+
+  for (const key of ['lastRunVersion', 'extensionReloadNoticeVersion']) {
+    if (_settingsHasOwn(settings, key) && _isValidVersionSetting(settings[key])) {
+      clean[key] = settings[key];
+    }
+  }
+
+  if (_settingsHasOwn(settings, 'pendingUpdateVersion')) {
+    if (settings.pendingUpdateVersion === null) {
+      clean.pendingUpdateVersion = null;
+    } else if (_isValidVersionSetting(settings.pendingUpdateVersion)) {
+      clean.pendingUpdateVersion = settings.pendingUpdateVersion;
+    }
   }
 
   if (_settingsHasOwn(settings, 'vaultPath')) {

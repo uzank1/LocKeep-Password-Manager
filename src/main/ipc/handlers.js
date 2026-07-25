@@ -23,6 +23,7 @@ const passwordGenerator = require('../vault/passwordGenerator');
 const clipboardGuard = require('../security/clipboardGuard');
 const autoLock = require('../security/autoLock');
 const startupManager = require('../system/startupManager');
+const updateManager = require('../system/updateManager');
 
 // Security helper: strict string input validation filter
 function isSafeString(input, maxLength) {
@@ -395,6 +396,24 @@ function registerAllHandlers() {
   ipcMain.handle('settings:resetVaultPath', () => {
     vaultManager.resetVaultPath();
     return { success: true };
+  });
+
+  // Application Updates
+
+  ipcMain.handle('updates:getState', () => {
+    return updateManager.getState();
+  });
+
+  ipcMain.handle('updates:check', () => {
+    return updateManager.checkForUpdates(true);
+  });
+
+  ipcMain.handle('updates:downloadAndInstall', () => {
+    return updateManager.downloadAndInstall();
+  });
+
+  ipcMain.handle('updates:ackExtensionReloadNotice', () => {
+    return updateManager.acknowledgeExtensionReloadNotice();
   });
 
 }

@@ -61,6 +61,9 @@ async function runTests() {
     language: 'tr',
     autoLockMinutes: 5,
     startWithWindows: true,
+    lastRunVersion: '1.0.2',
+    pendingUpdateVersion: '1.0.3',
+    extensionReloadNoticeVersion: '1.0.2',
     injected: { shouldNotPersist: true }
   });
   const cleanSettings = vaultManager.loadSettings();
@@ -68,6 +71,9 @@ async function runTests() {
     cleanSettings.language === 'tr'
       && cleanSettings.autoLockMinutes === 5
       && cleanSettings.startWithWindows === true
+      && cleanSettings.lastRunVersion === '1.0.2'
+      && cleanSettings.pendingUpdateVersion === '1.0.3'
+      && cleanSettings.extensionReloadNoticeVersion === '1.0.2'
       && cleanSettings.vaultPath === vaultPath
       && !Object.prototype.hasOwnProperty.call(cleanSettings, 'injected'),
     'Settings keep only the supported persisted fields'
@@ -77,6 +83,9 @@ async function runTests() {
     language: 'fr',
     autoLockMinutes: 999,
     startWithWindows: 'yes',
+    lastRunVersion: 'invalid version!',
+    pendingUpdateVersion: { version: '1.0.4' },
+    extensionReloadNoticeVersion: '',
     injected: 'still blocked'
   });
   const ignoredSettings = vaultManager.loadSettings();
@@ -84,6 +93,9 @@ async function runTests() {
     ignoredSettings.language === 'tr'
       && ignoredSettings.autoLockMinutes === 5
       && ignoredSettings.startWithWindows === true
+      && ignoredSettings.lastRunVersion === '1.0.2'
+      && ignoredSettings.pendingUpdateVersion === '1.0.3'
+      && ignoredSettings.extensionReloadNoticeVersion === '1.0.2'
       && !Object.prototype.hasOwnProperty.call(ignoredSettings, 'injected'),
     'Invalid settings updates are ignored without clobbering valid values'
   );
@@ -92,6 +104,12 @@ async function runTests() {
   check(
     vaultManager.loadSettings().startWithWindows === false,
     'Windows startup preference can be disabled'
+  );
+
+  vaultManager.saveSettings({ pendingUpdateVersion: null });
+  check(
+    vaultManager.loadSettings().pendingUpdateVersion === null,
+    'Pending update marker can be cleared after acknowledgement'
   );
 
   const weakResult = await vaultManager.createVault('weak');

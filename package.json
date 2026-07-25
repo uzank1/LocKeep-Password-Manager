@@ -1,7 +1,11 @@
 {
   "name": "lockeep-password-manager",
-  "version": "1.0.4",
-  "description": "LocKeep — Strictly Offline, Zero-Knowledge Password Manager",
+  "version": "1.0.5",
+  "description": "LocKeep — Local-First, Zero-Knowledge Password Manager",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/uzank1/LocKeep-Password-Manager.git"
+  },
   "main": "src/main/main.js",
   "author": {
     "name": "Koray Uzan",
@@ -11,17 +15,19 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "test": "npm run test:crypto && npm run test:vault && npm run test:content && npm run test:startup",
+    "test": "npm run test:crypto && npm run test:vault && npm run test:content && npm run test:startup && npm run test:update",
     "test:crypto": "node tests/crypto.test.js",
     "test:vault": "node tests/vault.test.js",
     "test:content": "node tests/content-script.test.js",
     "test:startup": "node tests/startup.test.js",
+    "test:update": "node tests/update.test.js",
     "install-native-host": "node scripts/install-native-host.js",
     "dist": "electron-builder --config electron-builder.yml",
     "build": "npm run dist"
   },
   "dependencies": {
     "argon2": "^0.41.1",
+    "electron-updater": "^6.8.9",
     "uuid": "^11.1.0"
   },
   "devDependencies": {

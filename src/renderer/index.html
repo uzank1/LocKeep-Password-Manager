@@ -10,6 +10,10 @@
 </head>
 
 <body>
+  <button type="button" id="update-notification" class="update-notification hidden">
+    <span data-i18n="updates.newVersionAvailable">A new version is available</span>
+    <span class="update-notification-arrow" aria-hidden="true">&rarr;</span>
+  </button>
   <!-- ═══ Lock Screen ═══ -->
   <div id="lock-screen">
     <!-- Let first-run users pick a language before they read the master password warning. -->
@@ -246,6 +250,20 @@
                 aria-describedby="start-with-windows-description" checked>
             </div>
           </div>
+          <div class="settings-section" id="update-settings-section">
+            <h3 data-i18n="updates.title">Application Updates</h3>
+            <div class="setting-row update-setting-row">
+              <div class="setting-copy">
+                <span id="update-status-text">Current version</span>
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm" id="update-action-btn"
+                data-i18n="updates.check">Check for updates</button>
+            </div>
+            <div class="update-progress hidden" id="update-progress" role="progressbar" aria-valuemin="0"
+              aria-valuemax="100" aria-valuenow="0">
+              <div class="update-progress-fill" id="update-progress-fill"></div>
+            </div>
+          </div>
           <div class="settings-section">
             <h3 data-i18n="settings.vaultLocation">Vault Location</h3>
             <div class="setting-row">
@@ -270,8 +288,8 @@
           </div>
           <div class="settings-section">
             <h3 data-i18n="settings.about">About</h3>
-            <p class="text-muted-sm">LocKeep Password Manager v1.0.0<br>Strictly
-              Offline. AES-256-GCM + Argon2id. Zero-Knowledge.</p>
+            <p class="text-muted-sm"><span id="about-version">LocKeep Password Manager</span><br>
+              Local-first. AES-256-GCM + Argon2id. Zero-Knowledge.</p>
           </div>
         </div>
       </div>

@@ -25,6 +25,7 @@ const autoLock = require('./security/autoLock');
 const clipboardGuard = require('./security/clipboardGuard');
 const vaultManager = require('./vault/vaultManager');
 const startupManager = require('./system/startupManager');
+const updateManager = require('./system/updateManager');
 const { startServer: startIPCServer, stopServer: stopIPCServer } = require('./nativeMessaging/nativeHost');
 
 // ─── Single Instance Lock ───────────────────────────────────────────────────
@@ -231,6 +232,10 @@ app.whenReady().then(() => {
 
   // Create the main window
   createWindow();
+
+  // Check GitHub stable releases after the UI is ready. Downloads never begin
+  // until the user explicitly presses the Update button.
+  updateManager.initialize();
 });
 
 // macOS: re-create window when dock icon is clicked
@@ -253,6 +258,7 @@ app.on('before-quit', () => {
   vaultManager.lockVault();
   clipboardGuard.dispose();
   autoLock.dispose();
+  updateManager.dispose();
   stopIPCServer();
 });
 

@@ -16,6 +16,15 @@
 
 let currentView = 'passwords';
 let allEntries = [];
+let updateState = {
+  status: 'idle',
+  currentVersion: '',
+  availableVersion: null,
+  progress: 0,
+  error: null,
+  extensionReloadRequired: false
+};
+let extensionReloadNoticeShown = false;
 
 // ─── DOM References ─────────────────────────────────────────────────────────
 
@@ -68,6 +77,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupEventListeners();
   setupActivityReporting();
   setupMainProcessListeners();
+  await initializeUpdateUI();
 });
 
 // ─── Event Listeners ────────────────────────────────────────────────────────
@@ -84,6 +94,7 @@ function syncLanguageControls() {
 function handleLanguageChange(e) {
   I18n.setLanguage(e.target.value);
   syncLanguageControls();
+  renderUpdateUI();
 }
 
 function setupEventListeners() {
@@ -130,6 +141,8 @@ function setupEventListeners() {
   $('#language-select').addEventListener('change', handleLanguageChange);
   $('#autolock-select').addEventListener('change', handleAutoLockChange);
   $('#start-with-windows-checkbox').addEventListener('change', handleStartWithWindowsChange);
+  $('#update-notification').addEventListener('click', openUpdateSettings);
+  $('#update-action-btn').addEventListener('click', handleUpdateAction);
   $('#change-vault-path-btn').addEventListener('click', handleChangeVaultPath);
   $('#reset-vault-path-btn').addEventListener('click', handleResetVaultPath);
   $('#change-pw-btn').addEventListener('click', handleChangeMasterPassword);
@@ -169,6 +182,14 @@ function setupMainProcessListeners() {
   vault.onClipboardCleared(() => {
     showToast(I18n.t('clipboard.cleared'), 'info');
   });
+
+  if (vault.onUpdateState) {
+    vault.onUpdateState((state) => {
+      updateState = { ...updateState, ...state };
+      renderUpdateUI();
+      maybeShowExtensionReloadNotice();
+    });
+  }
 }
 
 // ─── Master Password Validation ─────────────────────────────────────────────
@@ -287,6 +308,7 @@ async function handleLockVault() {
 function showLockScreen() {
   appContainer.classList.add('hidden');
   lockScreen.classList.remove('hidden');
+  $('#update-notification').classList.add('hidden');
   masterPwInput.value = '';
   confirmPwInput.value = '';
   lockBtn.disabled = false;
@@ -308,6 +330,8 @@ async function showApp() {
   await loadEntries();
   await loadSettings();
   await loadExportTargets();
+  renderUpdateUI();
+  maybeShowExtensionReloadNotice();
 }
 
 // ─── Entry List ─────────────────────────────────────────────────────────────
@@ -682,6 +706,161 @@ async function handleStartWithWindowsChange(e) {
   } finally {
     checkbox.disabled = false;
   }
+}
+
+async function initializeUpdateUI() {
+  if (!vault.getUpdateState) return;
+
+  try {
+    const state = await vault.getUpdateState();
+    updateState = { ...updateState, ...state };
+    renderUpdateUI();
+    maybeShowExtensionReloadNotice();
+  } catch {
+    updateState.status = 'error';
+    renderUpdateUI();
+  }
+}
+
+function renderUpdateUI() {
+  const notification = $('#update-notification');
+  const statusText = $('#update-status-text');
+  const actionButton = $('#update-action-btn');
+  const progress = $('#update-progress');
+  const progressFill = $('#update-progress-fill');
+  if (!notification || !statusText || !actionButton || !progress || !progressFill) return;
+
+  const status = updateState.status || 'idle';
+  const currentVersion = updateState.currentVersion || '';
+  const availableVersion = updateState.availableVersion || '';
+  const percent = Math.max(0, Math.min(100, Number(updateState.progress) || 0));
+  const appIsVisible = !appContainer.classList.contains('hidden');
+
+  const aboutVersion = $('#about-version');
+  if (aboutVersion && currentVersion) {
+    aboutVersion.textContent = `LocKeep Password Manager v${currentVersion}`;
+  }
+  notification.classList.toggle('hidden', status !== 'available' || !appIsVisible);
+  progress.classList.toggle('hidden', status !== 'downloading');
+  progressFill.style.width = `${percent}%`;
+  progress.setAttribute('aria-valuenow', String(percent));
+
+  actionButton.disabled = false;
+  actionButton.classList.remove('btn-primary');
+  actionButton.classList.add('btn-secondary');
+
+  switch (status) {
+    case 'checking':
+      statusText.textContent = I18n.t('updates.checking');
+      actionButton.textContent = I18n.t('updates.checking');
+      actionButton.disabled = true;
+      break;
+    case 'available':
+      statusText.textContent = I18n.t('updates.versionAvailable', { version: availableVersion });
+      actionButton.textContent = I18n.t('updates.update');
+      actionButton.classList.remove('btn-secondary');
+      actionButton.classList.add('btn-primary');
+      break;
+    case 'up-to-date':
+      statusText.textContent = I18n.t('updates.upToDate');
+      actionButton.textContent = I18n.t('updates.check');
+      break;
+    case 'downloading':
+      statusText.textContent = I18n.t('updates.downloading', { progress: percent });
+      actionButton.textContent = I18n.t('updates.downloading', { progress: percent });
+      actionButton.disabled = true;
+      break;
+    case 'downloaded':
+      statusText.textContent = I18n.t('updates.restarting');
+      actionButton.textContent = I18n.t('updates.restarting');
+      actionButton.disabled = true;
+      break;
+    case 'error':
+      statusText.textContent = I18n.t('updates.error');
+      actionButton.textContent = I18n.t('updates.check');
+      break;
+    case 'unsupported':
+      statusText.textContent = I18n.t('updates.installedOnly');
+      actionButton.textContent = I18n.t('updates.check');
+      actionButton.disabled = true;
+      break;
+    default:
+      statusText.textContent = I18n.t('updates.currentVersion', { version: currentVersion });
+      actionButton.textContent = I18n.t('updates.check');
+      break;
+  }
+}
+
+function openUpdateSettings() {
+  if (appContainer.classList.contains('hidden')) return;
+
+  switchView('settings');
+  const section = $('#update-settings-section');
+  section.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  section.classList.add('update-focus');
+  setTimeout(() => section.classList.remove('update-focus'), 1600);
+  $('#update-action-btn').focus({ preventScroll: true });
+}
+
+async function handleUpdateAction() {
+  const actionButton = $('#update-action-btn');
+  actionButton.disabled = true;
+
+  try {
+    const result = updateState.status === 'available'
+      ? await vault.downloadAndInstallUpdate()
+      : await vault.checkForUpdates();
+
+    if (result && result.state) {
+      updateState = { ...updateState, ...result.state };
+      renderUpdateUI();
+    }
+    if (!result || !result.success) {
+      showToast(I18n.t('updates.error'), 'error');
+    }
+  } catch {
+    updateState.status = 'error';
+    renderUpdateUI();
+    showToast(I18n.t('updates.error'), 'error');
+  }
+}
+
+function maybeShowExtensionReloadNotice() {
+  if (
+    !updateState.extensionReloadRequired
+    || extensionReloadNoticeShown
+    || appContainer.classList.contains('hidden')
+  ) {
+    return;
+  }
+
+  extensionReloadNoticeShown = true;
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <h3>${escapeHtml(I18n.t('updates.extensionReloadTitle'))}</h3>
+      </div>
+      <div class="modal-body">
+        <p>${escapeHtml(I18n.t('updates.extensionReloadIntro'))}</p>
+        <ol class="extension-reload-steps">
+          <li>${escapeHtml(I18n.t('updates.extensionReloadStep1'))} <code>chrome://extensions</code></li>
+          <li>${escapeHtml(I18n.t('updates.extensionReloadStep2'))}</li>
+          <li>${escapeHtml(I18n.t('updates.extensionReloadStep3'))}</li>
+        </ol>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" id="extension-reload-ack">
+          ${escapeHtml(I18n.t('updates.acknowledge'))}
+        </button>
+      </div>
+    </div>
+  `;
+  modalContainer.appendChild(modal);
+
+  modal.querySelector('#extension-reload-ack').addEventListener('click', () => modal.remove());
+  vault.acknowledgeExtensionReload().catch(() => {});
 }
 
 async function handleChangeVaultPath() {

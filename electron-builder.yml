@@ -4,6 +4,12 @@ copyright: Copyright © 2026 LocKeep
 directories:
   output: dist
   buildResources: build
+publish:
+  provider: github
+  owner: uzank1
+  repo: LocKeep-Password-Manager
+  releaseType: release
+  channel: latest
 files:
   - src/**/*
   - package.json
@@ -16,6 +22,7 @@ win:
   target:
     - nsis
   icon: src/renderer/assets/icons/icon.ico
+  artifactName: LocKeepPasswordManager-Setup-${version}.${ext}
 nsis:
   oneClick: false
   perMachine: false

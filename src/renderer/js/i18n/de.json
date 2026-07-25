@@ -106,6 +106,26 @@
     "about": "Über",
     "version": "Version"
   },
+  "updates": {
+    "title": "Anwendungsupdates",
+    "newVersionAvailable": "Eine neue Version ist verfügbar",
+    "check": "Nach Updates suchen",
+    "update": "Aktualisieren",
+    "checking": "Updates werden gesucht...",
+    "currentVersion": "Aktuelle Version: {{version}}",
+    "versionAvailable": "Version {{version}} ist verfügbar.",
+    "upToDate": "LocKeep ist auf dem neuesten Stand.",
+    "downloading": "Update wird heruntergeladen: {{progress}}%",
+    "restarting": "Update heruntergeladen. LocKeep wird neu gestartet...",
+    "error": "Das Update konnte nicht abgeschlossen werden. Bitte erneut versuchen.",
+    "installedOnly": "Updates können nur in der installierten Anwendung gesucht werden.",
+    "extensionReloadTitle": "Browser-Erweiterung neu laden",
+    "extensionReloadIntro": "LocKeep wurde aktualisiert. Laden Sie die Browser-Erweiterung neu, damit sie die neue Version verwendet.",
+    "extensionReloadStep1": "Öffnen Sie die Erweiterungsseite Ihres Browsers:",
+    "extensionReloadStep2": "Suchen Sie LocKeep Password Manager.",
+    "extensionReloadStep3": "Klicken Sie neben der Erweiterung auf Neu laden.",
+    "acknowledge": "Verstanden"
+  },
   "clipboard": {
     "copied": "{{label}} in Zwischenablage kopiert.",
     "clearing": "Zwischenablage wird in {{seconds}}s geleert",
