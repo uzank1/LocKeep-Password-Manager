@@ -100,6 +100,15 @@
     "startWithWindowsDescription": "Open LocKeep automatically when you sign in to Windows.",
     "startupUpdateFailed": "The Windows startup setting could not be updated.",
     "startupUnsupported": "Start with Windows is only available on Windows.",
+    "closeBehavior": "Window Closing",
+    "closeAction": "When closing the window",
+    "closeOptions": {
+      "quit": "Quit the application",
+      "tray": "Minimize to system tray"
+    },
+    "closeActionUpdateFailed": "The window closing setting could not be saved.",
+    "trayOpen": "Open LocKeep",
+    "trayQuit": "Quit LocKeep",
     "vaultLocation": "Vault Location",
     "currentPath": "Current path",
     "changePath": "Change Location",

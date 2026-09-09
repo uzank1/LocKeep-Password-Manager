@@ -61,6 +61,7 @@ async function runTests() {
     language: 'tr',
     autoLockMinutes: 5,
     startWithWindows: true,
+    closeAction: 'tray',
     lastRunVersion: '1.0.2',
     pendingUpdateVersion: '1.0.3',
     extensionReloadNoticeVersion: '1.0.2',
@@ -71,6 +72,7 @@ async function runTests() {
     cleanSettings.language === 'tr'
       && cleanSettings.autoLockMinutes === 5
       && cleanSettings.startWithWindows === true
+      && cleanSettings.closeAction === 'tray'
       && cleanSettings.lastRunVersion === '1.0.2'
       && cleanSettings.pendingUpdateVersion === '1.0.3'
       && cleanSettings.extensionReloadNoticeVersion === '1.0.2'
@@ -83,6 +85,7 @@ async function runTests() {
     language: 'fr',
     autoLockMinutes: 999,
     startWithWindows: 'yes',
+    closeAction: 'minimize',
     lastRunVersion: 'invalid version!',
     pendingUpdateVersion: { version: '1.0.4' },
     extensionReloadNoticeVersion: '',
@@ -93,6 +96,7 @@ async function runTests() {
     ignoredSettings.language === 'tr'
       && ignoredSettings.autoLockMinutes === 5
       && ignoredSettings.startWithWindows === true
+      && ignoredSettings.closeAction === 'tray'
       && ignoredSettings.lastRunVersion === '1.0.2'
       && ignoredSettings.pendingUpdateVersion === '1.0.3'
       && ignoredSettings.extensionReloadNoticeVersion === '1.0.2'
@@ -107,6 +111,8 @@ async function runTests() {
   );
 
   vaultManager.saveSettings({ pendingUpdateVersion: null });
+  vaultManager.saveSettings({ closeAction: 'quit' });
+  check(vaultManager.loadSettings().closeAction === 'quit', 'Close-to-tray can be turned off and stays saved');
   check(
     vaultManager.loadSettings().pendingUpdateVersion === null,
     'Pending update marker can be cleared after acknowledgement'

@@ -25,6 +25,7 @@ let updateState = {
   extensionReloadRequired: false
 };
 let extensionReloadNoticeShown = false;
+let savedCloseAction = 'quit';
 
 // ─── DOM References ─────────────────────────────────────────────────────────
 
@@ -141,6 +142,7 @@ function setupEventListeners() {
   $('#language-select').addEventListener('change', handleLanguageChange);
   $('#autolock-select').addEventListener('change', handleAutoLockChange);
   $('#start-with-windows-checkbox').addEventListener('change', handleStartWithWindowsChange);
+  $('#close-action-select').addEventListener('change', handleCloseActionChange);
   $('#update-notification').addEventListener('click', openUpdateSettings);
   $('#update-action-btn').addEventListener('click', handleUpdateAction);
   $('#change-vault-path-btn').addEventListener('click', handleChangeVaultPath);
@@ -673,6 +675,8 @@ async function loadSettings() {
     $('#autolock-select').value = String(settings.autoLockMinutes);
   }
   $('#start-with-windows-checkbox').checked = settings.startWithWindows !== false;
+  savedCloseAction = settings.closeAction === 'tray' ? 'tray' : 'quit';
+  $('#close-action-select').value = savedCloseAction;
   const vaultPath = settings.vaultPath || '%APPDATA%/LocKeepPasswordManager/vault.dat';
   $('#vault-path-display').textContent = vaultPath;
 }
@@ -681,6 +685,26 @@ async function handleAutoLockChange(e) {
   const minutes = parseInt(e.target.value, 10);
   await vault.setAutoLockTimeout(minutes);
   showToast(I18n.t('common.success'), 'success');
+}
+
+async function handleCloseActionChange(e) {
+  const select = e.target;
+  const requestedAction = select.value;
+  select.disabled = true;
+  try {
+    const result = await vault.saveSettings({ closeAction: requestedAction });
+    const persisted = await vault.getSettings();
+    if (!result || !result.success || persisted.closeAction !== requestedAction) {
+      throw new Error('Close action was not saved.');
+    }
+    savedCloseAction = requestedAction;
+    showToast(I18n.t('common.success'), 'success');
+  } catch {
+    select.value = savedCloseAction;
+    showToast(I18n.t('settings.closeActionUpdateFailed'), 'error');
+  } finally {
+    select.disabled = false;
+  }
 }
 
 async function handleStartWithWindowsChange(e) {

@@ -577,6 +577,16 @@ textarea { resize: vertical; min-height: 80px; }
 .setting-row label { font-size: var(--font-base); color: var(--text-secondary); }
 .setting-row select, .setting-row input { width: 180px; }
 
+.close-behavior-row {
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.close-behavior-row select {
+  width: 280px;
+  max-width: 100%;
+}
+
 .setting-copy {
   display: flex;
   flex-direction: column;

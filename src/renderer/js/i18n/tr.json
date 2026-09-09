@@ -100,6 +100,15 @@
     "startWithWindowsDescription": "Windows oturumu a\u00e7\u0131ld\u0131\u011f\u0131nda LocKeep'i otomatik olarak ba\u015flat\u0131r.",
     "startupUpdateFailed": "Windows ba\u015flang\u0131\u00e7 ayar\u0131 g\u00fcncellenemedi.",
     "startupUnsupported": "Windows ile birlikte ba\u015flatma yaln\u0131zca Windows'ta kullan\u0131labilir.",
+    "closeBehavior": "Pencereyi Kapatma",
+    "closeAction": "Çarpı düğmesine basıldığında",
+    "closeOptions": {
+      "quit": "Uygulamayı kapat",
+      "tray": "Sistem tepsisine küçült"
+    },
+    "closeActionUpdateFailed": "Pencere kapatma ayarı kaydedilemedi.",
+    "trayOpen": "LocKeep'i aç",
+    "trayQuit": "LocKeep'ten çık",
     "vaultLocation": "Kasa Konumu",
     "currentPath": "Mevcut konum",
     "changePath": "Konumu Değiştir",

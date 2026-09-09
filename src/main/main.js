@@ -17,7 +17,7 @@
 
 'use strict';
 
-const { app, BrowserWindow, session } = require('electron');
+const { app, BrowserWindow, session, Tray, Menu, autoUpdater } = require('electron');
 const path = require('path');
 
 const { registerAllHandlers } = require('./ipc/handlers');
@@ -27,6 +27,7 @@ const vaultManager = require('./vault/vaultManager');
 const startupManager = require('./system/startupManager');
 const updateManager = require('./system/updateManager');
 const updateInstallGuard = require('./system/updateInstallGuard');
+const { createWindowCloseManager } = require('./system/windowCloseManager');
 const { startServer: startIPCServer, stopServer: stopIPCServer } = require('./nativeMessaging/nativeHost');
 
 // ─── Single Instance Lock ───────────────────────────────────────────────────
@@ -39,17 +40,21 @@ if (!gotLock) {
 } else {
   app.on('second-instance', () => {
     // Focus existing window when user tries to open a second instance
-    const wins = BrowserWindow.getAllWindows();
-    if (wins.length > 0) {
-      if (wins[0].isMinimized()) wins[0].restore();
-      wins[0].focus();
-    }
+    windowCloseManager.restoreWindow();
   });
 }
 
 // ─── Main Window ────────────────────────────────────────────────────────────
 
 let mainWindow = null;
+const windowCloseManager = createWindowCloseManager({
+  app,
+  autoUpdater,
+  Tray,
+  Menu,
+  loadSettings: () => vaultManager.loadSettings(),
+  iconPath: path.join(__dirname, '..', 'renderer', 'assets', 'icons', 'icon.ico')
+});
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -78,6 +83,8 @@ function createWindow() {
       spellcheck: false
     }
   });
+
+  windowCloseManager.attachWindow(mainWindow);
 
   // Show window gracefully after content loads
   mainWindow.once('ready-to-show', () => {
@@ -249,6 +256,8 @@ app.whenReady().then(() => {
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
+  } else {
+    windowCloseManager.restoreWindow();
   }
 });
 

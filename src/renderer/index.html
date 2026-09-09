@@ -250,6 +250,16 @@
                 aria-describedby="start-with-windows-description" checked>
             </div>
           </div>
+          <div class="settings-section">
+            <h3 data-i18n="settings.closeBehavior">Window Closing</h3>
+            <div class="setting-row close-behavior-row">
+              <label for="close-action-select" data-i18n="settings.closeAction">When closing the window</label>
+              <select id="close-action-select">
+                <option value="quit" data-i18n="settings.closeOptions.quit">Quit the application</option>
+                <option value="tray" data-i18n="settings.closeOptions.tray">Minimize to system tray</option>
+              </select>
+            </div>
+          </div>
           <div class="settings-section" id="update-settings-section">
             <h3 data-i18n="updates.title">Application Updates</h3>
             <div class="setting-row update-setting-row">

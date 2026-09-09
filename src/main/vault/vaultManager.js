@@ -181,6 +181,10 @@ function _sanitizeSettings(settings) {
     clean.startWithWindows = settings.startWithWindows;
   }
 
+  if (_settingsHasOwn(settings, 'closeAction') && ['quit', 'tray'].includes(settings.closeAction)) {
+    clean.closeAction = settings.closeAction;
+  }
+
   for (const key of ['lastRunVersion', 'extensionReloadNoticeVersion']) {
     if (_settingsHasOwn(settings, key) && _isValidVersionSetting(settings[key])) {
       clean[key] = settings[key];

@@ -100,6 +100,15 @@
     "startWithWindowsDescription": "LocKeep bei der Windows-Anmeldung automatisch starten.",
     "startupUpdateFailed": "Die Windows-Autostart-Einstellung konnte nicht aktualisiert werden.",
     "startupUnsupported": "Autostart ist nur unter Windows verfügbar.",
+    "closeBehavior": "Fenster schließen",
+    "closeAction": "Beim Schließen des Fensters",
+    "closeOptions": {
+      "quit": "Anwendung beenden",
+      "tray": "In den Infobereich minimieren"
+    },
+    "closeActionUpdateFailed": "Die Einstellung zum Schließen des Fensters konnte nicht gespeichert werden.",
+    "trayOpen": "LocKeep öffnen",
+    "trayQuit": "LocKeep beenden",
     "vaultLocation": "Tresor-Speicherort",
     "currentPath": "Aktueller Pfad",
     "changePath": "Speicherort ändern",
