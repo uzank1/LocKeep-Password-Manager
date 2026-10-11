@@ -535,15 +535,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             response = await sendNativeMessage('QUERY_CREDENTIALS', { domain: cleanOrigin, origin: cleanOrigin });
             if (DEBUG) console.log(`[DIAGNOSTIC - Background] 3. Response from Native Host:`, response);
 
-            // If the vault is locked, pass the error through to the content script as-is.
-            // The content script / popup will display the appropriate "vault locked" message.
-            if (response && response.error === 'Vault is locked.') {
-              // Intentionally not modifying the response — the error propagates directly
-            } else if (!response || !response.success || !response.data || !Array.isArray(response.data.entries)) {
-              response = { success: true, data: { entries: [] } };
+            // Preserve failures so diagnostics can distinguish an unavailable
+            // vault/bridge from a successful search with no matching accounts.
+            if (!response || (response.success !== false &&
+                (!response.success || !response.data || !Array.isArray(response.data.entries)))) {
+              response = { success: false, error: 'Invalid credential response.' };
             }
           } catch (e) {
-            response = { success: true, data: { entries: [] } };
+            response = { success: false, error: e.message };
           }
           break;
 

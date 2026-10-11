@@ -15,8 +15,22 @@
 
   <div class="action-box" id="actionBox"></div>
 
+  <div class="diagnostics">
+    <button id="diagnoseButton" type="button">Check autofill</button>
+    <p id="diagnosticsHint"></p>
+    <div id="diagnosticsResult" role="status" aria-live="polite" hidden>
+      <ul id="diagnosticsFindings"></ul>
+      <details id="reportDetails" hidden>
+        <summary id="reportLabel">Technical report</summary>
+        <textarea id="diagnosticsReport" readonly spellcheck="false" aria-label="Autofill diagnostic report"></textarea>
+        <button id="copyReportButton" type="button">Copy report</button>
+      </details>
+    </div>
+  </div>
+
   <div class="info" id="tagline">Strictly offline password manager</div>
 
+  <script src="../autofill_diagnostics.js"></script>
   <script src="popup.js"></script>
 </body>
 

@@ -39,6 +39,10 @@
 // domain queries, and response data to the browser's DevTools console.
 const DEBUG = false;
 
+const AutofillDiagnostics = typeof module !== 'undefined' && module.exports
+  ? require('./autofill_diagnostics')
+  : globalThis.LocKeepAutofillDiagnostics;
+
 class LocKeepContentScript {
   constructor() {
     /** Current page hostname (e.g. 'login.github.com'). */
@@ -94,6 +98,8 @@ class LocKeepContentScript {
     /** Tracks multi-step registration flows whose password step appears later. */
     this._authFlowMode = null;
     this._authFlowModeTime = 0;
+
+    this.diagnostics = new AutofillDiagnostics(this);
   }
 
   // ─── i18n (Internationalisation) ─────────────────────────────────────────
@@ -172,6 +178,9 @@ class LocKeepContentScript {
   // ─── Init ─────────────────────────────────────────────────────────────────
 
   async init() {
+    // Available even if initialization stalls before form listeners are ready.
+    this.diagnostics.register();
+    this.diagnostics.phase = 'initializing';
     // Legacy cleanup: remove old chrome.storage.local entries once
     try {
       await chrome.storage.local.remove(['lockeep_last_username', 'lockeep_last_domain', 'lockeep_last_time']);
@@ -208,6 +217,9 @@ class LocKeepContentScript {
     // when it follows a real pointer or keyboard action.
     const rememberTrustedUserAction = (e) => {
       if (e && e.isTrusted) this._lastTrustedUserAction = Date.now();
+      if (e && e.target && e.target._lockeepAutofillListener) {
+        this.suppressInlinePasskeySuggestions(e.target);
+      }
     };
     document.addEventListener('pointerdown', rememberTrustedUserAction, true);
     document.addEventListener('keydown', rememberTrustedUserAction, true);
@@ -269,6 +281,7 @@ class LocKeepContentScript {
     // credential fetch and inject. The MutationObserver registered above will
     // trigger _fetchCredentials + analyzeAndInject once inputs arrive.
     if (this.getPasswordInputs(document).length === 0 && !document.querySelector('input[type="email"]')) {
+      this.diagnostics.phase = 'waiting_for_inputs';
       return;
     }
 
@@ -277,6 +290,7 @@ class LocKeepContentScript {
     this._credentialsFetched = true;
     if (!Array.isArray(this.credentials)) this.credentials = [];
     this.analyzeAndInject();
+    this.diagnostics.phase = 'ready';
   }
 
   /**
@@ -284,9 +298,24 @@ class LocKeepContentScript {
    * Extracted so both init() and the MutationObserver can call it independently.
    */
   async _fetchCredentials() {
+    this.diagnostics.fetchAttempts++;
+    const startedAt = Date.now();
+    const result = await this._queryCredentials();
+    this.credentials = result.entries;
+    this.diagnostics.lastFetch = {
+      at: Date.now(), durationMs: Date.now() - startedAt,
+      status: result.status, count: result.entries.length, lookups: result.lookups
+    };
+  }
+
+  // Shared by normal autofill and the read-only diagnostic probe. The probe
+  // must not refresh the page's cache or hide an intermittent failure.
+  async _queryCredentials() {
+    const lookups = [];
+    let entries = [];
+    let failureStatus = null;
     try {
       const lookupOrigins = this.getCredentialLookupOrigins();
-      this.credentials = [];
 
       for (const lookupOrigin of lookupOrigins) {
         const baseDomain = this.getBaseDomain(lookupOrigin);
@@ -297,11 +326,16 @@ class LocKeepContentScript {
           baseDomain: baseDomain
         });
         if (DEBUG) console.log(`[DIAGNOSTIC - Content] 2. Raw Response from Background:`, response);
-        if (!response || !response.success || !response.data || !Array.isArray(response.data.entries)) {
+        const status = AutofillDiagnostics.lookupStatus(response);
+        const lookup = { host: new URL(lookupOrigin).hostname, status, returnedCount: 0, selectedCount: 0 };
+        lookups.push(lookup);
+        if (status !== 'ok') {
+          failureStatus = failureStatus || status;
           continue;
         }
 
         if (DEBUG) console.log("LocKeep: Data received for UI:", response.data.entries);
+        lookup.returnedCount = response.data.entries.length;
         const uniqueEntries = this.dedupeCredentials(response.data.entries);
         if (this.isGoogleAccountsSignin() && lookupOrigin === window.location.origin) {
           const exactHost = window.location.hostname.toLowerCase();
@@ -309,7 +343,8 @@ class LocKeepContentScript {
             this.getCredentialEntryHost(entry) === exactHost
           );
           if (exactHostEntries.length > 0) {
-            this.credentials = exactHostEntries;
+            entries = exactHostEntries;
+            lookup.selectedCount = entries.length;
             break;
           }
 
@@ -326,11 +361,13 @@ class LocKeepContentScript {
 
         // If the backend already applied a stricter origin filter, keep its
         // result instead of discarding it because of a missing legacy field.
-        this.credentials = domainMatches.length > 0 ? domainMatches : uniqueEntries;
-        if (this.credentials.length > 0) break;
+        entries = domainMatches.length > 0 ? domainMatches : uniqueEntries;
+        lookup.selectedCount = entries.length;
+        if (entries.length > 0) break;
       }
+      return { entries, lookups, status: entries.length > 0 ? 'ok' : (failureStatus || 'ok') };
     } catch (e) {
-      this.credentials = [];
+      return { entries: [], lookups, status: AutofillDiagnostics.errorStatus(e) };
     }
   }
 
@@ -375,6 +412,12 @@ class LocKeepContentScript {
               }
             }
           });
+        } else if (m.type === 'attributes' && m.attributeName === 'autocomplete') {
+          // SPAs can restore the WebAuthn autofill annotation after injection.
+          // Keep the inline passkey menu out of fields handled by LocKeep.
+          if (m.target && m.target._lockeepAutofillListener) {
+            this.suppressInlinePasskeySuggestions(m.target);
+          }
         } else if (m.type === 'attributes' && m.attributeName === 'type') {
           const target = m.target;
           if (target && target.tagName === 'INPUT' && target.type === 'password') {
@@ -393,13 +436,15 @@ class LocKeepContentScript {
           this._credentialsFetched = true;
           if (!Array.isArray(this.credentials)) this.credentials = [];
           this.analyzeAndInject();
+          this.diagnostics.phase = 'ready';
         });
       } else {
         this.analyzeAndInject();
       }
     });
 
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['type'] });
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['type', 'autocomplete'] });
+    this.diagnostics.observerActive = true;
   }
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
@@ -546,8 +591,7 @@ class LocKeepContentScript {
   hasLoginFlowSignal(contextEl = null) {
     if (this.isGoogleAccountsSignin()) return true;
     if (contextEl && contextEl.getAttribute) {
-      const autocomplete = (contextEl.getAttribute('autocomplete') || '').toLowerCase();
-      if (autocomplete === 'current-password') return true;
+      if (this.getAutocompleteTokens(contextEl).includes('current-password')) return true;
     }
     return false;
   }
@@ -612,7 +656,8 @@ class LocKeepContentScript {
   sendMessageToBackground(message) {
     return new Promise((resolve) => {
       chrome.runtime.sendMessage(message, (response) => {
-        resolve(response || null);
+        const error = chrome.runtime.lastError;
+        resolve(error ? { success: false, error: error.message } : (response || null));
       });
     });
   }
@@ -683,9 +728,9 @@ class LocKeepContentScript {
   isKnownLoginPasswordStep(form, passwordInput) {
     if (!passwordInput) return false;
 
-    const autocomplete = (passwordInput.getAttribute('autocomplete') || '').toLowerCase();
-    if (autocomplete === 'current-password') return true;
-    if (autocomplete === 'new-password') return false;
+    const autocomplete = this.getAutocompleteTokens(passwordInput);
+    if (autocomplete.includes('current-password')) return true;
+    if (autocomplete.includes('new-password')) return false;
 
     const host = (window.location.hostname || '').toLowerCase();
     const path = (window.location.pathname || '').toLowerCase();
@@ -714,6 +759,7 @@ class LocKeepContentScript {
   // ─── Core Analysis ─────────────────────────────────────────────────────────
 
   analyzeAndInject() {
+    this.diagnostics.analysisCount++;
     const passwordInputs = this.getPasswordInputs(document);
     if (DEBUG) console.log(`[DIAGNOSTIC - DOM] 1. Found Password Inputs:`, passwordInputs.length);
     if (passwordInputs.length === 0) return;
@@ -722,6 +768,7 @@ class LocKeepContentScript {
       const form = passInput.closest('form') || document.body;
       const usernameInput = this.findUsernameInput(form, passInput);
       const isSignup = this.isSignupForm(form, passInput);
+      this.diagnostics.fieldModes.set(passInput, isSignup ? 'signup' : 'login');
       if (DEBUG) console.log(`[DIAGNOSTIC - DOM] 2. Form Analysis:`, { usernameInputFound: !!usernameInput, isSignup, credsCount: this.credentials?.length });
 
       const hasGenerateIcon = !!(passInput._lockeepIcon && document.body.contains(passInput._lockeepIcon));
@@ -779,56 +826,84 @@ class LocKeepContentScript {
    * @returns {boolean}
    */
   isSignupForm(form, passwordInput) {
-    const autocomplete = passwordInput
-      ? (passwordInput.getAttribute('autocomplete') || '').toLowerCase()
-      : '';
-    if (autocomplete === 'current-password' || this.isGoogleAccountsSignin()) return false;
-    if (autocomplete === 'new-password') return true;
-    if (this.isSignupFlowActive()) return true;
-    if (this.isKnownLoginPasswordStep(form, passwordInput)) return false;
+    return this.getSignupReason(form, passwordInput) !== null;
+  }
+
+  getSignupReason(form, passwordInput) {
+    const autocomplete = this.getAutocompleteTokens(passwordInput);
+    if (autocomplete.includes('current-password') || this.isGoogleAccountsSignin()) return null;
+    if (autocomplete.includes('new-password')) return 'new_password_autocomplete';
+    if (this.isSignupFlowActive()) return 'remembered_signup_flow';
+    if (this.isKnownLoginPasswordStep(form, passwordInput)) return null;
 
     if (!form || form === document.body) {
       if (passwordInput) {
         const inputAttr = `${passwordInput.id || ''} ${passwordInput.name || ''}`.toLowerCase();
-        if (/(new|signup|register)/i.test(inputAttr)) return true;
+        if (/(new|signup|register)/i.test(inputAttr)) return 'password_field_attributes';
       }
       const allPass = this.getVisiblePasswordInputs(document);
-      if (allPass.length > 1) return true;
-      return false;
+      if (allPass.length > 1) return 'multiple_visible_password_fields';
+      return null;
     }
 
     const passwordInputs = this.getVisiblePasswordInputs(form);
-    if (passwordInputs.length > 1) return true;
+    if (passwordInputs.length > 1) return 'multiple_visible_password_fields';
 
     const formAttr = `${form.id || ''} ${form.name || ''} ${form.action || ''}`.toLowerCase();
     if (/(signup|register|join|create|new)/i.test(formAttr)) {
       if (!/(login|signin|sign-in|auth)/i.test(formAttr)) {
-        return true;
+        return 'form_attributes';
       }
     }
 
     if (passwordInput) {
       const inputAttr = `${passwordInput.id || ''} ${passwordInput.name || ''}`.toLowerCase();
-      if (/(new|signup|register)/i.test(inputAttr)) return true;
+      if (/(new|signup|register)/i.test(inputAttr)) return 'password_field_attributes';
     }
 
-    return false;
+    return null;
   }
 
   // ─── Autofill Dropdown ─────────────────────────────────────────────────────
+
+  getAutocompleteTokens(input) {
+    return ((input && input.getAttribute('autocomplete')) || '').toLowerCase().trim().split(/\s+/).filter(Boolean);
+  }
+
+  suppressInlinePasskeySuggestions(input) {
+    if (!input || !Array.isArray(this.credentials) || this.credentials.length === 0) return;
+    const tokens = (input.getAttribute('autocomplete') || '').trim().split(/\s+/).filter(Boolean);
+    if (!tokens.some(token => token.toLowerCase() === 'webauthn')) return;
+
+    // The `webauthn` token opts this field into the browser's conditional
+    // passkey dropdown. Remove only that token on our autofill targets. Keep
+    // username/current-password semantics and explicit passkey sign-in intact.
+    input.setAttribute('autocomplete', tokens.filter(token => token.toLowerCase() !== 'webauthn').join(' ') || 'off');
+    input._lockeepInlinePasskeySuppressed = true;
+  }
 
   setupAutofillDropdown(anchorInput, passwordInput, usernameInput = anchorInput) {
     if (!anchorInput || !passwordInput) return;
 
     const showDropdown = (e) => {
-      if (!this.shouldHonorAutofillEvent(e)) return;
+      if (!this.shouldHonorAutofillEvent(e)) {
+        this.diagnostics.recordInteraction(e, e && e.isTrusted ? 'focus_without_user_action' : 'untrusted_event');
+        return;
+      }
+      this.suppressInlinePasskeySuggestions(e.currentTarget || anchorInput);
       if (e) e.stopPropagation();
 
       // If dropdown is already active, just return to prevent flicker
-      if (this.activeDropdown) return;
+      if (this.activeDropdown) {
+        this.diagnostics.recordInteraction(e, 'dropdown_already_active');
+        return;
+      }
 
       const credentials = Array.isArray(this.credentials) ? this.credentials : [];
-      if (credentials.length === 0) return;
+      if (credentials.length === 0) {
+        this.diagnostics.recordInteraction(e, 'no_cached_credentials');
+        return;
+      }
 
       const triggerInput = e && e.currentTarget && typeof e.currentTarget.getBoundingClientRect === 'function'
         ? e.currentTarget
@@ -902,6 +977,7 @@ class LocKeepContentScript {
 
       document.body.appendChild(dropdown);
       this.activeDropdown = dropdown;
+      this.diagnostics.recordInteraction(e, 'dropdown_opened');
     };
 
     // FIX: Listen to both 'focus' and 'click' — 'focus' alone misses the case
@@ -910,8 +986,10 @@ class LocKeepContentScript {
       input && inputs.indexOf(input) === index
     );
     triggerInputs.forEach(input => {
+      this.suppressInlinePasskeySuggestions(input);
       input.addEventListener('focus', showDropdown);
       input.addEventListener('click', showDropdown);
+      input._lockeepAutofillListener = true;
     });
   }
 
@@ -1315,9 +1393,13 @@ if (typeof module !== 'undefined' && module.exports) {
 // Initialize script in the browser. The document guard also allows the class to
 // be loaded by the Node-based regression tests without starting the extension.
 if (typeof document !== 'undefined') {
+  const start = () => {
+    const contentScript = new LocKeepContentScript();
+    contentScript.init().catch(() => { contentScript.diagnostics.phase = 'initialization_failed'; });
+  };
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => new LocKeepContentScript().init());
+    document.addEventListener('DOMContentLoaded', start);
   } else {
-    new LocKeepContentScript().init();
+    start();
   }
 }

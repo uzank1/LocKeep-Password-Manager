@@ -38,6 +38,64 @@ LocKeep is built with support for 3 languages and instantly adapts to your prefe
 
 (More languages can be added in the future upon request!)
 
+## Diagnosing a Missing Autofill List
+
+Reload the unpacked extension from your browser's extensions page after changing
+the extension source, then refresh the affected website once to load the new
+page script. If you use the installed desktop app's bundled extension, these
+changes must first be included in a new app build, or load this repository's
+`extension` folder as the unpacked extension.
+
+When the problem happens again, **do not refresh the website before collecting
+the report**:
+
+1. Click the username or password field where the list should appear.
+2. Open LocKeep from the browser toolbar and click **Check autofill**
+   (**Otomatik doldurmayı kontrol et** in Turkish).
+3. Read the findings, then expand **Technical report** and use **Copy report**.
+4. If all websites are affected, unlock the desktop vault and repeat the check
+   on the same page. Compare the initial cached lookup with the fresh lookup.
+
+The report includes the website hostname, initialization state, account counts,
+lookup failure categories, form classification reasons, listener state, the
+last 20 field focus/click outcomes, and dropdown visibility. It compares the
+page's cached result against a fresh read-only account search without replacing
+the cache, filling a field, or retrieving a password. Nothing is uploaded or
+persistently logged; the observations live in page memory until navigation.
+Only **Copy report** puts the report on the clipboard.
+
+No usernames, passwords, account IDs/titles, input values, raw error messages,
+page text, or URL paths/query strings are included. The hostname and counts
+are included intentionally to diagnose domain matching.
+
+`stale_empty_cache` means accounts are available now but the page retained an
+earlier empty/failed result. `vault_locked` and `native_unavailable` identify
+vault/bridge problems. `signup_classification` explains why the form received
+the generator instead of the account list. `no_password_field` is relevant
+to username-first flows such as Microsoft sign-in: the current injector waits
+for a password field. Iframe and open Shadow DOM findings identify forms outside
+the current main-document scan. Cross-origin frames and closed shadow roots
+cannot be inspected by this report; a frame-presence finding is a possibility,
+not proof. Context scanning is bounded and reports when truncated.
+
+The report is diagnostic evidence; a successful fresh search does not repair
+the page's cached state. To recover after collecting it, unlock/start LocKeep
+and refresh the page.
+
+### Browser Passkey Dropdown Overlap
+
+When LocKeep has matching accounts and attaches its autofill list, it removes
+only the `webauthn` autocomplete token from the fields it handles. That token
+enables the browser's inline passkey suggestions, including Windows Hello
+suggestions in Brave. Username and password autocomplete semantics remain
+intact. The guard reapplies if a SPA restores the token. Fields without LocKeep
+autofill are untouched, and explicit passkey sign-in remains available.
+
+This targets the inline passkey popup; it does not disable the browser's entire
+password manager or erase saved browser credentials. Reload the extension and
+the page after updating. The diagnostic report records whether the annotation
+was suppressed with `inlinePasskeySuggestionsSuppressed`.
+
 ## Publishing an Auto-Update Release
 
 1. Set the new stable version in `package.json` and `package-lock.json`.
