@@ -10,6 +10,7 @@
 }
 
 .lockeep-dropdown {
+  box-sizing: border-box !important;
   position: fixed !important;
   display: block !important;
   pointer-events: all !important;
@@ -71,7 +72,7 @@
 }
 
 .lockeep-generate-icon {
-  position: absolute !important;
+  position: fixed !important;
   z-index: 9999 !important;
   transform: translateY(-50%) !important;
   display: none;
@@ -102,10 +103,15 @@
 }
 
 .lockeep-save-prompt {
+  box-sizing: border-box;
   position: fixed;
   bottom: 24px;
   right: 24px;
   width: 320px;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  overflow-wrap: anywhere;
   background: var(--lockeep-bg);
   border: 1px solid var(--lockeep-border);
   border-radius: 12px;

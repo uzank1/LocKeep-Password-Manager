@@ -1,6 +1,6 @@
 {
   "name": "lockeep-password-manager",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "description": "LocKeep — Local-First, Zero-Knowledge Password Manager",
   "repository": {
     "type": "git",
@@ -22,6 +22,9 @@
     "test:startup": "node tests/startup.test.js",
     "test:update": "node tests/update.test.js",
     "test:window": "node --test tests/window-close.test.js",
+    "lab": "node tests/browser-lab/server.cjs",
+    "test:lab": "node --test tests/browser-lab/server.test.cjs",
+    "test:browser": "electron tests/browser-lab/run.cjs",
     "install-native-host": "node scripts/install-native-host.js",
     "dist": "electron-builder --config electron-builder.yml",
     "build": "npm run dist"

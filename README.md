@@ -71,16 +71,19 @@ are included intentionally to diagnose domain matching.
 `stale_empty_cache` means accounts are available now but the page retained an
 earlier empty/failed result. `vault_locked` and `native_unavailable` identify
 vault/bridge problems. `signup_classification` explains why the form received
-the generator instead of the account list. `no_password_field` is relevant
-to username-first flows such as Microsoft sign-in: the current injector waits
-for a password field. Iframe and open Shadow DOM findings identify forms outside
-the current main-document scan. Cross-origin frames and closed shadow roots
-cannot be inspected by this report; a frame-presence finding is a possibility,
-not proof. Context scanning is bounded and reports when truncated.
+the generator instead of the account list. `no_password_field` can describe a
+username-first step; these steps now receive the account list when a suitable
+username control is found. Frame and Shadow DOM findings describe where forms
+are located, rather than proving that they are unsupported. Each matching HTTP(S)
+frame receives its own script and uses its own browser-provided origin. Closed
+component access uses Chromium's `chrome.dom` API when available. The main-frame
+report cannot inspect cross-origin frame internals. Context scanning is bounded
+and reports when truncated.
 
 The report is diagnostic evidence; a successful fresh search does not repair
-the page's cached state. To recover after collecting it, unlock/start LocKeep
-and refresh the page.
+the page's cached state. After unlocking/starting LocKeep, click the login field to
+retry an earlier failed/empty lookup without reloading the page. Repeated clicks
+are throttled and concurrent lookups are shared.
 
 ### Browser Passkey Dropdown Overlap
 
@@ -96,9 +99,25 @@ password manager or erase saved browser credentials. Reload the extension and
 the page after updating. The diagnostic report records whether the annotation
 was suppressed with `inlinePasskeySuggestionsSuppressed`.
 
+## Browser Compatibility Lab
+
+Run `npm run lab` and open `http://127.0.0.1:4318` for the local browser test
+dashboard. It provides 54 repeatable scenarios, from ordinary login and
+registration to unusual field names, multiple forms, dynamic pages, overlays,
+dialogs, embedded forms, and connection failures. The default simulation uses
+the current extension source with sample accounts and an in-memory fake bridge.
+Each fixture can also be opened separately to test the actual browser extension.
+
+Run `npm run test:browser` for automated Chromium input, layout, and behavior
+checks. Results and screenshots are written to `dist/browser-lab`; compatibility
+gaps cause a nonzero exit code and are listed in the report. See
+[the lab guide](tests/browser-lab/README.md) for setup, coverage, and real-browser
+testing boundaries.
+
 ## Publishing an Auto-Update Release
 
-1. Set the new stable version in `package.json` and `package-lock.json`.
+1. Set the new stable version in `package.json`, `package-lock.json`, and
+   `extension/manifest.json`.
 2. Run `npm test`.
 3. Run `npm run build`.
 4. Create a non-draft, non-prerelease GitHub Release with a matching tag such as `vX.Y.Z`.

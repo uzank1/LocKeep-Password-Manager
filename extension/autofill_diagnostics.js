@@ -59,7 +59,7 @@ class LocKeepAutofillDiagnostics {
   recordInteraction(event, outcome) {
     const input = event && (event.currentTarget && event.currentTarget.tagName === 'INPUT'
       ? event.currentTarget : event.target);
-    const inputs = Array.from(document.querySelectorAll('input'));
+    const inputs = this.content.getInputs(document, false);
     const interaction = {
       at: Date.now(), event: event && event.type === 'focus' ? 'focus' : 'click',
       inputIndex: inputs.indexOf(input), trusted: Boolean(event && event.isTrusted),
@@ -87,7 +87,7 @@ class LocKeepAutofillDiagnostics {
     for (const frame of frames.slice(0, 20)) {
       try {
         if (!frame.contentDocument) result.inaccessibleFrames++;
-        else result.framePasswordInputs += this.content.getPasswordInputs(frame.contentDocument).length;
+        else result.framePasswordInputs += this.content.getPasswordInputs(frame.contentDocument, false).length;
       } catch { result.inaccessibleFrames++; }
     }
     return result;
@@ -117,18 +117,20 @@ class LocKeepAutofillDiagnostics {
 
   snapshot() {
     const content = this.content;
-    const allInputs = Array.from(document.querySelectorAll('input'));
-    const passwordInputs = content.getPasswordInputs(document);
+    const allInputs = content.getInputs(document, false);
+    const passwordInputs = content.getPasswordInputs(document, false);
     const fields = passwordInputs.slice(0, 50).map(input => {
-      const form = input.closest('form') || document.body;
+      const form = content.getFieldScope(input);
       const signupReason = content.getSignupReason(form, input);
-      const usernameInput = content.findUsernameInput(form, input);
+      const usernameInput = content.findUsernameInput(form, input, false);
       const autocompleteTokens = content.getAutocompleteTokens(input);
       const autocomplete = autocompleteTokens.find(token => ['current-password', 'new-password'].includes(token)) || 'other';
       return {
         inputIndex: allInputs.indexOf(input), visible: content.isInputVisible(input),
         autocomplete: ['current-password', 'new-password'].includes(autocomplete) ? autocomplete : 'other',
         mode: signupReason ? 'signup' : 'login', signupReason,
+        passwordRole: content.getPasswordRole(input),
+        generatorAttached: Boolean(input._lockeepIcon),
         analyzedMode: this.fieldModes.get(input) || null,
         usernameFieldFound: Boolean(usernameInput),
         usernameListenerAttached: usernameInput ? Boolean(usernameInput._lockeepAutofillListener) : null,
@@ -152,6 +154,9 @@ class LocKeepAutofillDiagnostics {
         fields, fieldsTruncated: passwordInputs.length > fields.length,
         unsupportedContexts: this.inspectUnsupportedContexts() },
       dropdown: this.inspectDropdown(),
+      submission: { phase: content._submissionPhase || 'idle',
+        lastAt: content._lastSubmissionTime || null,
+        waitingForFinalConsent: Boolean(content.authBuffer.awaitingCompletion) },
       interactions: this.interactions.map(interaction => ({ ...interaction }))
     };
   }

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LocKeep · Tarayıcı test alanı</title>
+  <link rel="stylesheet" href="/lab.css">
+  <script defer src="/catalog.js"></script>
+  <script defer src="/lab.js"></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="wordmark" href="/"><span class="logo">L</span> LocKeep <span class="wordmark-detail">LAB</span></a>
+    <div class="sidebar-caption">TARAYICI TEST ALANI</div>
+    <h1>Her form.<br>Her koşul.</h1>
+    <p class="intro">İdeal giriş ekranından zorlayıcı katmanlara kadar, uzantıyı aynı ortamda dene.</p>
+    <label class="search-label" for="search">Senaryo ara</label>
+    <input id="search" type="search" placeholder="Örn. katman, gizli alan…">
+    <nav id="groups" aria-label="Senaryo grupları"></nav>
+    <div class="sidebar-footer"><span class="status-dot"></span> Yalnızca bu bilgisayarda<br><small>Simülasyon gerçek kasaya erişmez.</small></div>
+  </aside>
+  <main class="workspace">
+    <header class="workspace-header">
+      <div><div class="eyebrow">UYUMLULUK ATÖLYESİ</div><h2>Tarayıcı deneyimini incele</h2></div>
+      <div class="header-links"><a class="text-link" href="/results/" target="_blank" rel="noopener">Test sonuçları ↗</a><div class="counter"><strong id="scenarioCount">—</strong> farklı senaryo</div></div>
+    </header>
+    <div class="scenario-strip" id="scenarioList" aria-label="Senaryolar"></div>
+    <section class="scenario-header">
+      <div><div class="eyebrow" id="categoryLabel"></div><h3 id="scenarioTitle"></h3><p id="scenarioDescription"></p></div>
+      <a id="nativeLink" class="text-link" target="_blank" rel="noopener">Gerçek uzantıyla aç ↗</a>
+    </section>
+    <div class="toolbar">
+      <div class="select-group"><label for="profile">Masaüstü durumu</label><select id="profile"><option value="available">Hesaplar mevcut</option><option value="empty">Eşleşen hesap yok</option><option value="locked">Kasa kilitli</option><option value="offline">Bağlantı kapalı</option><option value="slow">Yavaş yanıt</option></select></div>
+      <div class="select-group"><label for="language">Uzantı dili</label><select id="language"><option value="tr">Türkçe</option><option value="en">English</option><option value="de">Deutsch</option></select></div>
+      <div class="select-group"><label for="width">Ekran</label><select id="width"><option value="wide">Geniş</option><option value="390">390 px</option><option value="320">320 px</option></select></div>
+      <div class="select-group"><label for="theme">Örnek site</label><select id="theme"><option value="light">Açık</option><option value="dark">Koyu</option></select></div>
+      <button id="reload" class="tool-button">Baştan başlat</button><button id="popupButton" class="tool-button">Uzantı paneli</button>
+    </div>
+    <div class="stage-row">
+      <section class="stage-shell" aria-label="Örnek site"><div class="stage-label"><span class="window-dots">● ● ●</span><span id="siteLabel">nimbus.example.test</span><span class="simulation-label">SİMÜLASYON</span></div><div class="stage" id="stage"><iframe id="scenarioFrame" title="Seçili test senaryosu"></iframe></div></section>
+      <aside class="popup-pane" id="popupPane" hidden><div class="stage-label">Uzantı paneli · Simülasyon</div><iframe id="popupFrame" title="Simüle edilen uzantı paneli"></iframe></aside>
+    </div>
+    <div class="review-row">
+      <section class="expectations"><div class="eyebrow">BEKLENEN DAVRANIŞ</div><ul id="expectations"></ul><p class="sample-note">Örnek hesaplar: demo.one@example.test ve demo.two@example.test. Yeni kayıt için farklı bir örnek ad kullan.</p></section>
+      <section class="review"><div class="review-top"><div><div class="eyebrow">GÖZLEMLENEN SONUÇ</div><p id="verdict">Alanlarla etkileşime gir, sonra kontrol et.</p></div><button class="primary" id="audit">Kontrol et</button></div><ul id="checks"></ul><div class="review-actions"><button id="recover" class="text-button">Bağlantıyı düzelt</button><button id="diagnose" class="text-button">Teşhis raporu</button><button id="export" class="text-button" disabled>Sonucu indir</button></div><pre id="diagnosticReport" hidden></pre></section>
+    </div>
+    <p class="scope-note">Simülasyon güncel uzantı kodunu örnek verilerle çalıştırır. Gerçek tarayıcı izinleri, yerel bağlantı ve Windows Hello davranışı için “Gerçek uzantıyla aç” yolunu kullan. Gerçek testte yalnızca örnek hesap bilgileri gir.</p>
+  </main>
+</body>
+</html>

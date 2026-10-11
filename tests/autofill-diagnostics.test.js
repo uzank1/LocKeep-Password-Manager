@@ -128,8 +128,8 @@ test('Google compatibility lookup still runs after an unsuccessful exact-host re
   assert.equal(result.status, 'ok');
 });
 
-test('Microsoft username-only step is diagnosed without attaching autofill or changing hostname matching', async () => {
-  const { content } = pageHarness(['text']);
+test('Microsoft username-only step attaches autofill while diagnostics retain hostname matching', async () => {
+  const { content, inputs } = pageHarness(['text']);
   content.resolveLanguage = async () => {};
   content.syncAuthFlowModeFromBackground = async () => {};
   content.captureAuthFlowContext = () => {};
@@ -143,11 +143,12 @@ test('Microsoft username-only step is diagnosed without attaching autofill or ch
   };
   await content.init();
   const report = await content.diagnostics.collect();
-  assert.equal(report.initialization.phase, 'waiting_for_inputs');
+  assert.equal(report.initialization.phase, 'ready');
   assert.ok(report.findings.includes('no_password_field'));
-  assert.ok(report.findings.includes('credentials_not_fetched'));
-  assert.deepEqual(origins, ['https://login.microsoftonline.com']);
-  assert.equal(content._credentialsFetched, false);
+  assert.ok(!report.findings.includes('credentials_not_fetched'));
+  assert.deepEqual(origins, ['https://login.microsoftonline.com', 'https://login.microsoftonline.com']);
+  assert.equal(content._credentialsFetched, true);
+  assert.equal(inputs[0]._lockeepAutofillListener, true);
 });
 
 test('Report explains remembered registration mode and identifies fields that missed analysis', async () => {
@@ -291,9 +292,10 @@ function backgroundHarness() {
     } }
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../extension/background.js'), 'utf8'), context);
-  vm.runInContext('sendNativeMessage = async (command, data) => { lastQuery = data; if (bridgeFailure) throw new Error(bridgeFailure); return bridgeResult; };', context);
+  vm.runInContext('sendNativeMessage = async (command, data) => { lastCommand = command; lastQuery = data; if (bridgeFailure) throw new Error(bridgeFailure); return bridgeResult; };', context);
   context.bridgeFailure = '';
-  return { context, query: () => new Promise(resolve => handler(
+  const request = (message, sender) => new Promise(resolve => handler(message, sender, resolve));
+  return { context, request, query: () => new Promise(resolve => handler(
     { type: 'SEARCH_DOMAIN', domain: 'https://untrusted.invalid' },
     { origin: 'https://login.microsoftonline.com', url: 'https://login.microsoftonline.com/login', tab: { id: 1 } }, resolve
   )) };
@@ -312,6 +314,121 @@ test('Background preserves native errors and keeps the browser-provided origin a
   assert.equal((await query()).success, true);
   context.bridgeResult = { success: true, data: {} };
   assert.equal((await query()).success, false);
+});
+
+test('Embedded content scripts bind search, password access and saves to the frame origin', async () => {
+  const { context, request } = backgroundHarness();
+  const sender = { frameId: 3, origin: 'https://embedded.example.test',
+    url: 'https://embedded.example.test/form', tab: { id: 1, url: 'https://parent.invalid/page' } };
+  context.bridgeResult = { success: true, data: { entries: [] } };
+  await request({ type: 'SEARCH_DOMAIN', domain: 'https://parent.invalid' }, sender);
+  assert.equal(context.lastQuery.origin, sender.origin);
+  await request({ type: 'GET_CREDENTIAL', id: 'demo-id', origin: 'https://parent.invalid' }, sender);
+  assert.equal(context.lastCommand, 'GET_CREDENTIAL');
+  assert.equal(context.lastQuery.origin, sender.origin);
+  await request({ type: 'ADD_ENTRY', entry: { url: 'https://parent.invalid', domain: 'parent.invalid' } }, sender);
+  assert.equal(context.lastCommand, 'SAVE_CREDENTIAL');
+  assert.equal(context.lastQuery.url, sender.origin);
+  assert.equal(context.lastQuery.domain, sender.origin);
+});
+
+test('Shadow access uses the supported API and fails safely when it is unavailable', () => {
+  const { content, inputs } = pageHarness();
+  const root = { querySelectorAll: selector => selector === '*' ? [] : inputs };
+  const host = { shadowRoot: null };
+  const scope = { querySelectorAll: selector => selector === '*' ? [host] : [] };
+  assert.deepEqual(content.getInputs(scope, false), []);
+  chrome.dom = { openOrClosedShadowRoot: element => element === host ? root : null };
+  assert.deepEqual(content.getInputs(scope, false), inputs);
+  chrome.dom.openOrClosedShadowRoot = () => { throw new Error('Unavailable'); };
+  assert.deepEqual(content.getInputs(scope, false), []);
+});
+
+test('Opaque frame origins cannot fall back to the parent or payload for private commands', async () => {
+  const { context, request } = backgroundHarness();
+  context.bridgeResult = { success: true, data: { entries: [] } };
+  for (const origin of ['null', 'data:text/html,example', 'chrome-extension://foreign']) {
+    const sender = { frameId: 2, origin, url: 'https://embedded.example.test/form', tab: { id: 1, url: 'https://parent.invalid' } };
+    for (const type of ['SEARCH_DOMAIN', 'GET_CREDENTIAL', 'GET_PENDING_SAVE', 'ADD_ENTRY']) {
+      const response = await request({ type, domain: 'https://parent.invalid', origin: 'https://parent.invalid' }, sender);
+      assert.equal(response.success, false);
+      assert.equal(response.error, 'Unsupported page origin.');
+      assert.equal(context.lastQuery, undefined);
+    }
+  }
+});
+
+test('Concurrent account retries share one lookup and preserve a genuine empty response', async () => {
+  const { content } = pageHarness();
+  let release;
+  let calls = 0;
+  content._queryCredentials = () => { calls++; return new Promise(resolve => { release = resolve; }); };
+  const first = content._fetchCredentials();
+  const second = content._fetchCredentials();
+  assert.equal(calls, 1);
+  release({ status: 'ok', entries: [], lookups: [] });
+  await Promise.all([first, second]);
+  assert.equal(content.diagnostics.fetchAttempts, 1);
+  assert.equal(content.diagnostics.lastFetch.status, 'ok');
+  assert.deepEqual(content.credentials, []);
+});
+
+test('Current password names are protected across underscore/camelCase and remembered signup mode', () => {
+  const { content, inputs, form } = pageHarness();
+  content._authFlowMode = 'signup'; content._authFlowModeTime = Date.now();
+  for (const name of ['current_password', 'currentPassword', 'old_password', 'existingPassword']) {
+    inputs[1].name = name;
+    assert.equal(content.getPasswordRole(inputs[1]), 'current', name);
+    assert.equal(content.getSignupReason(form, inputs[1]), null, name);
+  }
+});
+
+test('Icon-only auth controls use semantic attributes, excluding generic, cookie and disabled buttons', () => {
+  const { content } = pageHarness();
+  const button = attributes => ({ type: 'submit', textContent: '', value: '', name: '', id: '',
+    closest: () => null, getAttribute: attribute => attributes[attribute] || null });
+  assert.equal(content.getAuthSubmitKind(button({ 'data-testid': 'btn-signup-submit' })), 'auth_button');
+  assert.equal(content.getAuthSubmitKind(button({ 'aria-label': 'Create account' })), 'auth_button');
+  assert.equal(content.getAuthSubmitKind(button({ 'aria-label': 'forward' })), null);
+  assert.equal(content.getAuthSubmitKind(button({ 'aria-label': 'Close cookie banner' })), null);
+  assert.equal(content.getAuthSubmitKind({ ...button({ 'data-testid': 'btn-signup-submit' }), disabled: true }), null);
+});
+
+test('Deferred registration pairs expire, clear explicitly and never enter diagnostic exports', async () => {
+  const { content } = pageHarness();
+  content._authFlowMode = 'signup'; content._authFlowModeTime = Date.now();
+  content.rememberRegistrationPair('PRIVATE_USER', 'PRIVATE_PASSWORD');
+  try {
+    content.authBuffer.awaitingCompletion = true;
+    content._submissionPhase = 'waiting_for_consent';
+    assert.equal(content.hasLiveRegistrationPair(), true);
+    const report = await content.diagnostics.collect();
+    assert.equal(report.submission.phase, 'waiting_for_consent');
+    assert.equal(report.submission.waitingForFinalConsent, true);
+    assert.equal(JSON.stringify(report).includes('PRIVATE_'), false);
+    content.authBuffer.capturedAt = Date.now() - 120001;
+    assert.equal(content.hasLiveRegistrationPair(), false);
+  } finally { content.clearRegistrationBuffer(); }
+  assert.equal(content.authBuffer.password, '');
+  assert.equal(content.authBuffer.username, '');
+  assert.equal(content._authBufferTimer, null);
+});
+
+test('Plain consent buttons require an active registration pair and a checked consent outside cookie UI', () => {
+  const { content, inputs } = pageHarness(['checkbox']);
+  inputs[0].required = true; inputs[0].checked = false;
+  const button = { type: 'button', textContent: 'KABUL ET', value: '', name: '', id: '',
+    closest: () => null, getAttribute: () => null };
+  assert.equal(content.getAuthSubmitKind(button), null);
+  content._authFlowMode = 'signup'; content._authFlowModeTime = Date.now();
+  content.rememberRegistrationPair('demo-user', 'demo-password');
+  try {
+    content.authBuffer.awaitingCompletion = true;
+    assert.equal(content.getAuthSubmitKind(button), null);
+    inputs[0].checked = true;
+    assert.equal(content.getAuthSubmitKind(button), 'registration_completion');
+    assert.equal(content.getAuthSubmitKind({ ...button, closest: selector => selector.includes('cookie') ? {} : null }), null);
+  } finally { content.clearRegistrationBuffer(); }
 });
 
 function popupHarness(searchResponse, pageResponse) {

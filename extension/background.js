@@ -124,7 +124,10 @@ function normalizeOrigin(value) {
 
 function getSenderOrigin(sender) {
   if (!sender || !sender.tab) return '';
-  return normalizeOrigin(sender.origin || sender.url || (sender.tab && sender.tab.url) || '');
+  try {
+    const url = new URL(sender.origin || sender.url || sender.tab.url || '');
+    return ['https:', 'http:'].includes(url.protocol) ? url.origin : '';
+  } catch { return ''; }
 }
 
 function getEffectiveOrigin(sender, fallback) {
@@ -523,6 +526,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     let response;
 
     try {
+      // An opaque/sandboxed frame must not fall back to the parent's origin or
+      // a claimed origin in its payload when requesting private vault data.
+      if (sender && sender.tab && !getSenderOrigin(sender)) {
+        sendResponse({ success: false, error: 'Unsupported page origin.' });
+        return;
+      }
       switch (message.type) {
         case 'PING':
           response = await sendNativeMessage('PING');
