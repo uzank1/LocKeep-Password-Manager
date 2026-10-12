@@ -5,7 +5,7 @@ Both fixture servers bind to the loopback interface only. The second server,
 on the next port, supplies a genuinely different origin for iframe tests.
 Set `LOCKEEP_LAB_PORT` to change the first port; the next port must also be free.
 
-The dashboard has 54 scenarios covering login, registration, confirmation,
+The dashboard has 57 scenarios covering login, registration, confirmation,
 password reset/change, unusual field names/types, misleading hidden fields,
 multiple forms, multistep and redirected flows, validation/rejected submissions,
 SPA replacement and late rendering, password visibility toggles, synthetic
@@ -19,6 +19,10 @@ browser editing events to enable its next button. The final consent button is
 text-only and has no signup marker, so it cannot pass through the icon-button
 matcher accidentally.
 The scenario catalog is the source of truth for the actual count.
+Identity/CAPTCHA cases reproduce the public e-Devlet form's `number` account
+field, its `password` masking toggle and separate security-code input. Sample
+identifiers start with zero and are deliberately invalid Turkish identity
+numbers. The fixtures do not solve a CAPTCHA or authenticate with a real service.
 [The initial baseline](BASELINE.md) records the first measured gaps and their
 development priorities.
 Fixtures use neutral numbered URLs and session identifiers, so incidental

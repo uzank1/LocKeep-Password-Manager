@@ -373,6 +373,42 @@ test('Concurrent account retries share one lookup and preserve a genuine empty r
   assert.deepEqual(content.credentials, []);
 });
 
+test('Numeric and masked identity controls are usernames while CAPTCHA never receives credentials', () => {
+  const { content, inputs, form } = pageHarness(['number', 'password', 'text']);
+  const [identity, password, captcha] = inputs;
+  identity.name = 'tridField'; identity.attributes['aria-label'] = 'T. C. Kimlik Numaranızı Girin';
+  identity.labels = [{ textContent: 'T.C. Kimlik No' }];
+  password.name = 'egpField'; password.labels = [{ textContent: 'e-Devlet Şifresi' }];
+  captcha.name = 'captchaField'; captcha.labels = [{ textContent: 'Güvenlik Kodu' }];
+  inputs.forEach(input => Object.defineProperty(input, 'value', { get() { throw new Error('Classification must not inspect values'); } }));
+  assert.equal(content.findUsernameInput(form, password), identity);
+  identity.type = 'password';
+  assert.equal(content.isPasswordLikeInput(identity), false);
+  assert.deepEqual(content.getPasswordInputs(form), [password]);
+  assert.equal(content.findUsernameInput(form, password), identity);
+  identity.hidden = true;
+  assert.equal(content.findUsernameInput(form, password), null);
+  for (const label of ['Güvenlik Kodu', 'Guvenlik Kodu', 'Security Code', 'Sicherheitscode', 'CAPTCHA']) {
+    captcha.name = 'q17'; captcha.labels = [{ textContent: label }];
+    assert.equal(content.findUsernameInput(form, password), null, label);
+  }
+});
+
+test('Numeric fallback avoids quantities and explicit password hints override a masked identity label', () => {
+  const { content, inputs, form } = pageHarness(['number', 'password']);
+  const [identity, password] = inputs;
+  identity.name = 'quantity';
+  assert.equal(content.findUsernameInput(form, password), null);
+  identity.name = 'memberNumber';
+  assert.equal(content.findUsernameInput(form, password), identity);
+  identity.type = 'password'; identity.name = 'q17'; identity.attributes.autocomplete = 'username';
+  assert.equal(content.isPasswordLikeInput(identity), false);
+  assert.equal(content.findUsernameInput(form, password), identity);
+  identity.attributes.autocomplete = 'current-password'; identity.labels = [{ textContent: 'National ID number' }];
+  assert.equal(content.isPasswordLikeInput(identity), true);
+  assert.equal(content.findUsernameInput(form, password), null);
+});
+
 test('Current password names are protected across underscore/camelCase and remembered signup mode', () => {
   const { content, inputs, form } = pageHarness();
   content._authFlowMode = 'signup'; content._authFlowModeTime = Date.now();

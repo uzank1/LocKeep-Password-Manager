@@ -2,8 +2,8 @@
 
 Updated on 2026-10-12 against the current working source. The original
 [baseline](BASELINE.md) contained 23 gaps/support limits in 50 scenarios.
-The regenerated Chromium simulation now passes all 54 scenarios with 506 checks
-and no harness errors. `npm test` passes 104 application/unit tests and
+The regenerated Chromium simulation now passes all 57 scenarios with 560 checks
+and no harness errors. `npm test` passes 106 application/unit tests and
 `npm run test:lab` passes the server isolation test.
 
 | Original cases | Resulting behavior |
@@ -59,6 +59,28 @@ The editing path uses Chromium's `insertText` editing command, with a native
 setter/InputEvent fallback. [MDN documents its compatibility limits](https://developer.mozilla.org/en-US/docs/Web/API/Document/execCommand).
 This legacy API is optional and tested in the lab's Chromium engine; its behavior
 in the installed Brave extension remains part of the real-browser check.
+
+## Numeric identity and CAPTCHA correction
+
+The public e-Devlet login form was inspected without entering account details
+or submitting it. Its `tridField` uses `type="number"`, a T.C. Kimlik No label,
+and numeric input mode. The site's hide/show control changes that same input
+to `type="password"`. Its actual sign-in password remains a separate `egpField`,
+and `captchaField` is a text input labelled Güvenlik Kodu.
+
+The previous detector excluded numeric usernames and allowed CAPTCHA as a
+generic text fallback. Three added fixtures reproduced all three gaps before
+the correction: `identity-captcha`, `masked-identity`, and
+`captcha-without-username`.
+
+Numeric controls now require positive account/identity semantics; arbitrary
+quantities cannot become usernames by proximity. Masked identity controls stay
+account fields, with explicit current/new password autocomplete taking priority.
+CAPTCHA and English/Turkish/German security-code labels are excluded even when
+there is no other username control. The cases exercise real clicks from both
+identity and password fields, mask toggling, unchanged security-code values,
+and value-free diagnostics. Unit tests also classify the controls with value
+getters that throw, ensuring detection does not inspect account data.
 
 ## Validation boundaries
 

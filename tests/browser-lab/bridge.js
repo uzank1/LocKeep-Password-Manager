@@ -22,6 +22,9 @@
       { id: 'lab-one', username: 'demo.one@example.test', title: 'Örnek kişisel hesap', url: location.origin },
       { id: 'lab-two', username: 'demo.two@example.test', title: 'Örnek iş hesabı', url: location.origin }
     ];
+    if (['identity-captcha', 'masked-identity'].includes(config.scenario.id)) {
+      entries = entries.map((entry, index) => ({ ...entry, username: index ? '00000000002' : '00000000001' }));
+    }
     if (config.scenario.id === 'many-accounts') entries = Array.from({ length: 12 }, (_, index) => ({
       id: `lab-${index}`, username: `very.long.demo.account.number.${index}@example.test`,
       title: 'Uzun hesap açıklaması — farklı bölümler için örnek bir hesap '.repeat(3), url: location.origin
@@ -143,6 +146,8 @@
       if (username) check('Seçilen hesabın kullanıcı adı doğru alana doldu', (username.isContentEditable ? username.textContent : username.value) === sampleEntries()[0].username);
       const protectedFields = [...document.querySelectorAll('[data-lab="coupon"], [data-lab="otp"], [data-lab="trap"]')];
       check('İlgisiz ve gizli alanlar korunuyor', protectedFields.every(field => !field.value));
+      const captcha = document.querySelector('[data-lab="captcha"]');
+      if (captcha) check('Güvenlik kodu doldurma dışında kaldı', captcha.value === 'ABCD');
       check('Site doldurmayı algıladı', Boolean(window.labFixtureEvents.password?.input && window.labFixtureEvents.password?.change));
     }
     if (config.scenario.id === 'removed-field') check('Sahipsiz oluşturma düğmesi yok', !document.querySelector('.lockeep-generate-icon'));

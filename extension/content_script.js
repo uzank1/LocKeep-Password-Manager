@@ -891,10 +891,22 @@ class LocKeepContentScript {
     if (!input || input.tagName !== 'INPUT') return false;
 
     const type = (input.type || '').toLowerCase();
-    if (type === 'password') return true;
+    if (type === 'password') {
+      const tokens = this.getAutocompleteTokens(input);
+      // Some sign-in pages mask the account identifier with type=password.
+      // Explicit password autocomplete remains authoritative.
+      if (tokens.some(token => ['current-password', 'new-password'].includes(token))) return true;
+      return !tokens.includes('username') && !this.hasIdentitySignal(input);
+    }
     if (!['text', 'search', ''].includes(type)) return false;
 
     return /password|passwort|parola|sifre|şifre|\bpass\b/.test(this.getFieldSignal(input));
+  }
+
+  hasIdentitySignal(input) {
+    const signal = this.getFieldSignal(input);
+    return !/password|passwort|parola|sifre|şifre|\bpass\b/.test(signal) &&
+      /\bkimlik\b|\b(?:national|citizen|personal|identity|identification)\s+(?:id|number|no)\b|\b(?:national|citizen)\s+identification\b|\bsocial\s+security\b|\bssn\b|\bpersonnummer\b/.test(signal);
   }
 
   getFieldSignal(input) {
@@ -915,6 +927,7 @@ class LocKeepContentScript {
       input.id,
       input.className,
       input.placeholder,
+      input.getAttribute('title'),
       input.getAttribute('aria-label'),
       input.getAttribute('autocomplete'),
       input.getAttribute('data-testid'),
@@ -998,7 +1011,7 @@ class LocKeepContentScript {
     scopes.forEach(scope => {
       if (this.getVisiblePasswordInputs(scope).length || this.hasSignupFlowSignal(scope) || this.isSignupFlowActive()) return;
       const username = this.findUsernameInput(scope);
-      if (username && /user|email|e-posta|member|identifier|telefon|phone|üye/.test(this.getFieldSignal(username)) &&
+      if (username && (/user|email|e-posta|member|identifier|telefon|phone|üye/.test(this.getFieldSignal(username)) || this.hasIdentitySignal(username)) &&
           this.credentials.length && !username._lockeepAutofillListener) this.setupAutofillDropdown(username, null, username);
     });
 
@@ -1048,16 +1061,20 @@ class LocKeepContentScript {
   findUsernameInput(form, passwordInput = null, observe = true) {
     const inputs = this.getInputs(form, observe);
     const candidates = inputs.filter(input => input !== passwordInput && this.isInputVisible(input) &&
-      (['text', 'email', 'tel', ''].includes(input.type) || input.isContentEditable) && !this.isPasswordLikeInput(input));
+      (['text', 'email', 'tel', 'number', 'password', ''].includes(input.type) || input.isContentEditable) && !this.isPasswordLikeInput(input));
     const ranked = candidates.map(input => {
       const tokens = this.getAutocompleteTokens(input);
       const signal = this.getFieldSignal(input);
-      if (tokens.includes('one-time-code') || tokens.some(token => /^(cc-|address|postal|given-name|family-name|bday)/.test(token)) ||
-          /coupon|discount|kupon|doğrulama|verification|\botp\b|search|sitede ara|date of birth|birth date|birth year|birthday|doğum/.test(signal)) return { input, score: -1 };
+      if (tokens.some(token => ['one-time-code', 'current-password', 'new-password'].includes(token)) || tokens.some(token => /^(cc-|address|postal|given-name|family-name|bday)/.test(token)) ||
+          /coupon|discount|kupon|do[ğg]rulama|verification|captcha|\botp\b|\bsecurity\s+code\b|g[uü]venlik\s+kod|sicherheits\s*code|search|sitede ara|date of birth|birth date|birth year|birthday|do[ğg]um/.test(signal)) return { input, score: -1 };
       let score = tokens.includes('username') ? 100 : 0;
       if (input.type === 'email' || /e-?mail|e-posta/.test(signal)) score += 60;
       if (/user|kullanıcı|kullanici|üye|member|identifier|login|benutzer/.test(signal)) score += 50;
+      if (this.hasIdentitySignal(input)) score += 50;
       if (input.type === 'tel' || /phone|telefon/.test(signal)) score += 30;
+      // Numeric quantities and dates do not become fallback usernames merely
+      // because they happen to precede a password field.
+      if (input.type === 'number' && score === 0) return { input, score: -1 };
       // Prefer a nearby field preceding the password when semantics tie.
       const distance = passwordInput ? inputs.indexOf(passwordInput) - inputs.indexOf(input) : 0;
       score += distance > 0 ? 5 / distance : 0;

@@ -75,6 +75,23 @@ async function runScenario(scenario) {
     assert.ok(await js('Boolean(window.LocKeepLab && window.labFixtureReady)'), 'Fixture or fake bridge did not load');
     const extras = [];
     const add = (label, pass, detail = '') => extras.push({ label, pass, detail });
+    if (['identity-captcha', 'masked-identity'].includes(scenario.id)) {
+      await click('[data-lab="username"]');
+      add('Kimlik kutusuna gerçek tıklama hesap listesini açtı', await js('Boolean(document.querySelector(".lockeep-dropdown"))'));
+      if (await js('Boolean(document.querySelector(".lockeep-dropdown"))')) await click('.lockeep-dropdown-item');
+      add('Kimlik kutusundan seçim doğru iki alanı doldurdu', await js('document.querySelector("[data-lab=username]").value === "00000000001" && document.querySelector("[data-lab=password]").value === "Demo-Autofill!2026"'));
+      add('Kimlik seçiminde güvenlik kodu değişmedi', await js('document.querySelector("[data-lab=captcha]").value === "ABCD"'));
+      await click('h1');
+      if (scenario.id === 'masked-identity') {
+        await click('[data-action="mask-identity"]'); await delay(180);
+        await click('[data-lab="username"]');
+        add('Kimlik görünür sayıya dönüşünce liste çalıştı', await js('document.querySelector("[data-lab=username]").type === "number" && Boolean(document.querySelector(".lockeep-dropdown"))'));
+        await click('h1'); await click('[data-action="mask-identity"]'); await delay(180);
+        await click('[data-lab="username"]');
+        add('Kimlik tekrar gizlenince liste çalıştı', await js('document.querySelector("[data-lab=username]").type === "password" && Boolean(document.querySelector(".lockeep-dropdown")) && !document.querySelector(".lockeep-generate-icon")'));
+        await click('h1');
+      }
+    }
     if (scenario.id === 'riot-five-step') {
       const initialURL = await js('location.href');
       await type('[data-lab="email"]', 'mail.demo@example.test'); await click('[data-action="signup-next"]');
@@ -178,6 +195,11 @@ async function runScenario(scenario) {
     }
     const response = await js('LocKeepLab.requestDiagnostics()');
     result.diagnostics = response.report;
+    if (['identity-captcha', 'masked-identity', 'captcha-without-username'].includes(scenario.id)) {
+      extra(result, 'Güvenlik koduna hesap listesi bağlanmadı', await js('!document.querySelector("[data-lab=captcha]")._lockeepAutofillListener'));
+      extra(result, 'Teşhis yalnız giriş parolasını saydı', response.report.page.passwordInputCount === 1);
+      extra(result, 'Teşhis kimlik veya güvenlik kodunu içermiyor', !/0000000000[12]|ABCD/.test(JSON.stringify(response.report)));
+    }
     if (!response.success) throw new Error('Diagnostic report failed');
     const serialized = JSON.stringify(response.report);
     extra(result, 'Teşhis raporu hesap bilgisi içermiyor', !/demo\.one|demo\.two|new\.demo|Demo-(Autofill|Generated|Typed|Pending)/.test(serialized));

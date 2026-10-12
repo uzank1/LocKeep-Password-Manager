@@ -48,6 +48,9 @@
     case 'named-current-password': content = form(password({ name: 'current_password', autocomplete: 'off', 'data-lab': 'old', value: 'Demo-Old-Password!23' }) + password({ name: 'newPassword', autocomplete: 'off' }) + confirm({ name: 'confirmPassword', autocomplete: 'off' }), true); break;
     case 'icon-signup': content = `<div class="formless">${username({ type: 'text', name: 'riotUsername', autocomplete: 'off' })}${newPassword({ autocomplete: 'off' })}${confirm({ autocomplete: 'off' })}<button class="submit" data-action="submit" data-testid="btn-signup-submit"><svg role="img" aria-label="forward" viewBox="0 0 32 32" width="30" height="30"><path d="M4 14h18l-8-8 2-2 12 12-12 12-2-2 8-8H4z"></path></svg></button></div>`; break;
     case 'riot-five-step': content = `<div class="formless" id="registration-steps">${username({ type: 'text', name: 'email_address', 'data-lab': 'email', autocomplete: 'off' })}${signupArrow()}</div>`; break;
+    case 'identity-captcha': case 'masked-identity':
+      content = `<form id="loginForm"><input type="hidden" name="encTridField" data-lab="trap">${input('T.C. Kimlik No', 'username', { id: 'tridField', name: 'tridField', type: scenario.id === 'masked-identity' ? 'password' : 'number', autocomplete: 'off', inputmode: 'numeric', maxlength: '11', 'aria-label': 'T. C. Kimlik Numaranızı Girin' })}${action('mask-identity', 'Kimlik numarasını gizle / göster')}${input('e-Devlet Şifresi', 'password', { id: 'egpField', name: 'egpField', type: 'password', autocomplete: 'off', 'aria-label': 'e-Devlet Şifrenizi Girin' })}${input('Güvenlik Kodu', 'captcha', { id: 'captchaField', name: 'captchaField', maxlength: '5', value: 'ABCD' })}${submit('Giriş Yap')}</form>`; break;
+    case 'captcha-without-username': content = form(password() + input('Güvenlik Kodu', 'captcha', { name: 'captchaField', value: 'ABCD' })); break;
   }
   root.innerHTML = card(content);
   document.body.dataset.theme = config.theme;
@@ -173,6 +176,7 @@
         break;
       }
       case 'reveal': { const element = document.querySelector('[data-lab="password"]'); element.type = element.type === 'password' ? 'text' : 'password'; break; }
+      case 'mask-identity': { const element = document.querySelector('[data-lab="username"]'); element.type = element.type === 'password' ? 'number' : 'password'; break; }
       case 'remove': root.querySelector('form').remove(); break;
       case 'shift': { const block = document.createElement('div'); block.className = 'advertisement'; block.textContent = 'Geç yüklenen örnek alan'; root.querySelector('.auth-card').before(block); break; }
       case 'scroll': document.querySelector('.scroll-panel').scrollTop = 700; break;

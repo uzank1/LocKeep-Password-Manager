@@ -102,7 +102,7 @@ was suppressed with `inlinePasskeySuggestionsSuppressed`.
 ## Browser Compatibility Lab
 
 Run `npm run lab` and open `http://127.0.0.1:4318` for the local browser test
-dashboard. It provides 54 repeatable scenarios, from ordinary login and
+dashboard. It provides 57 repeatable scenarios, from ordinary login and
 registration to unusual field names, multiple forms, dynamic pages, overlays,
 dialogs, embedded forms, and connection failures. The default simulation uses
 the current extension source with sample accounts and an in-memory fake bridge.

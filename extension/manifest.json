@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LocKeep Password Manager",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "Strictly offline password manager extension — communicates with local desktop app only.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtre6Cih7UCv0KZXnLopgBbgBl24ldmShQ6jrrTkT6dYxhXyU+MVLH7kwO1sFbD7V3YQSyE9S4+ya3jtQT/pACMt5rM9FRJ7s/USgAWMB+wviBEz3gmxQehIWfJ4GSTTcJcdQWUyQLEBBUrkZO94AcZhBkY6eWqxFzhEl+IucjEiPNkuU93VhDHeHBszlg9b+lSmnbUF3TkLKFzEhQDVJyxNq2GRv0VosGLdjNoTi+utQD5bdRT7xjsFTV/8rjryQSCTem1kk7mWu0qrlFJm73R20OnE+2nbpAy8XP/bT60KEMKP4UlWsOXEgPQZsO2pOc9xWKoTqhO4ToZWDTvYTKwIDAQAB",
   "permissions": [
