@@ -1,6 +1,6 @@
 {
   "name": "lockeep-password-manager",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "description": "LocKeep — Local-First, Zero-Knowledge Password Manager",
   "repository": {
     "type": "git",
@@ -19,7 +19,7 @@
     "test:crypto": "node tests/crypto.test.js",
     "test:vault": "node tests/vault.test.js",
     "test:content": "node tests/content-script.test.js && node --test tests/autofill-diagnostics.test.js",
-    "test:startup": "node tests/startup.test.js",
+    "test:startup": "node tests/startup.test.js && node --test tests/single-instance.test.js",
     "test:update": "node tests/update.test.js",
     "test:window": "node --test tests/window-close.test.js",
     "lab": "node tests/browser-lab/server.cjs",

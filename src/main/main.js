@@ -18,6 +18,16 @@
 'use strict';
 
 const { app, BrowserWindow, session, Tray, Menu, autoUpdater } = require('electron');
+
+// Stop a secondary process before importing services or registering lifecycle
+// callbacks. app.quit() alone does not stop this CommonJS module from running;
+// a later ready/quit callback could overwrite or delete the owner's IPC files.
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+  return;
+}
+
 const path = require('path');
 
 const { registerAllHandlers } = require('./ipc/handlers');
@@ -31,18 +41,11 @@ const { createWindowCloseManager } = require('./system/windowCloseManager');
 const { startServer: startIPCServer, stopServer: stopIPCServer } = require('./nativeMessaging/nativeHost');
 
 // ─── Single Instance Lock ───────────────────────────────────────────────────
-// Prevent multiple instances of the app from running simultaneously.
-// A second instance could cause vault file corruption.
-
-const gotLock = app.requestSingleInstanceLock();
-if (!gotLock) {
-  app.quit();
-} else {
-  app.on('second-instance', () => {
-    // Focus existing window when user tries to open a second instance
-    windowCloseManager.restoreWindow();
-  });
-}
+// Only the lock owner reaches this point and can touch the vault/bridge.
+app.on('second-instance', () => {
+  // Focus existing window when user tries to open a second instance.
+  windowCloseManager.restoreWindow();
+});
 
 // ─── Main Window ────────────────────────────────────────────────────────────
 
